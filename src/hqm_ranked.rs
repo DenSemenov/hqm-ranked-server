@@ -11,7 +11,6 @@ use migo_hqm_server::hqm_simulate::HQMSimulationEvent;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::rc::Rc;
-use tracing::instrument::WithSubscriber;
 
 use migo_hqm_server::hqm_game::HQMPuck;
 
@@ -88,7 +87,6 @@ impl HQMRankedBehaviour {
                 if let Ok(new_num) = size.parse::<usize>() {
                     if new_num > 0 && new_num <= 15 {
                         self.team_max = new_num;
-
                         info!(
                             "{} ({}) set team size to {}",
                             player.player_name, player_index, new_num
@@ -304,6 +302,20 @@ impl HQMServerBehaviour for HQMRankedBehaviour {
         self.team_switch_timer.remove(&player_index);
         self.m.rhqm_game.rejoin_timer.remove(&player_index);
         self.m.verified_players.remove(&player_index);
+
+        if let Some(player) = _server.players.get(player_index) {
+            self.m
+                .queued_players
+                .retain(|x| x.player_index != player_index);
+
+            if matches!(self.m.status, State::Game { .. })
+                || matches!(self.m.status, State::CaptainsPicking { .. })
+            {
+                if let Some(rhqm_player) = self.m.rhqm_game.get_player_by_index_mut(player_index) {
+                    rhqm_player.player_index = None;
+                }
+            }
+        }
     }
 
     fn get_number_of_players(&self) -> u32 {
