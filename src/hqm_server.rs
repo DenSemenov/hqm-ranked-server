@@ -1301,8 +1301,11 @@ impl HQMServer {
             replay_data.put_slice(&old_replay_data);
             let replay_data = replay_data.freeze();
             let time = old_game.start_time.format("%Y-%m-%dT%H%M%S").to_string();
+            let gm = old_game.game_id;
+            let game_id = self.game.game_id.clone();
             let file_name = format!("{}.{}.hrp", self.config.server_name, time);
             let server_name = self.config.server_name.clone();
+            let token = self.config.token.clone();
             match self.config.replay_saving {
                 ReplaySaving::File => {
                     tokio::spawn(async move {
@@ -1326,8 +1329,8 @@ impl HQMServer {
                 ReplaySaving::Endpoint { ref url } => {
                     let client = self.reqwest_client.clone();
                     let form = reqwest::multipart::Form::new()
-                        .text("time", time)
-                        .text("server", server_name)
+                        .text("gameId", game_id)
+                        .text("token", token)
                         .part(
                             "replay",
                             reqwest::multipart::Part::stream(replay_data).file_name(file_name),
@@ -2072,6 +2075,8 @@ pub struct HQMServerConfiguration {
     pub replay_saving: ReplaySaving,
     pub server_name: String,
     pub server_service: Option<String>,
+
+    pub token: String,
 }
 
 pub trait HQMServerBehaviour {

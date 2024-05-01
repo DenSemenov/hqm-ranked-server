@@ -543,10 +543,10 @@ impl HQMRanked {
         if team == HQMTeam::Blue {
             scorer_team = 1;
         }
+        let client = server.reqwest_client.clone();
+
         tokio::spawn(async move {
             let url = format!("{}/api/Server/AddGoal", api);
-
-            let client = reqwest::Client::new();
 
             let request = CallGoalRequest {
                 token: token,
@@ -1512,10 +1512,9 @@ impl HQMRanked {
                 let pass = format!("{}", password_user);
                 let api = self.config.api.clone();
                 let token = self.config.token.clone();
+                let client = server.reqwest_client.clone();
                 tokio::spawn(async move {
                     let url = format!("{}/api/Server/Login", api);
-
-                    let client = reqwest::Client::new();
 
                     let mut map = HashMap::new();
                     map.insert("login", &username);
@@ -1563,15 +1562,14 @@ impl HQMRanked {
         }
     }
 
-    pub(crate) fn request_player_points_and_win_rate(&self, player_ids: Vec<i32>) {
+    pub(crate) fn request_player_points_and_win_rate(&self, server: &mut HQMServer,player_ids: Vec<i32>) {
         let sender = self.sender.clone();
         let api = self.config.api.clone();
         let token = self.config.token.clone();
         let team_max: usize = self.config.team_max.clone();
+        let client = server.reqwest_client.clone();
         tokio::spawn(async move {
             let url = format!("{}/api/Server/StartGame", api);
-
-            let client = reqwest::Client::new();
 
             let request = GameStartRequest {
                 token: token,
@@ -1780,10 +1778,9 @@ impl HQMRanked {
             if current_team == HQMTeam::Blue {
                 team = 1;
             }
+            let client = server.reqwest_client.clone();
             tokio::spawn(async move {
                 let url = format!("{}/api/Server/Pick", api);
-
-                let client = reqwest::Client::new();
 
                 let request = PickRequest {
                     token: token,
@@ -1830,10 +1827,9 @@ impl HQMRanked {
                     if current_team == HQMTeam::Blue {
                         team = 1;
                     }
+                    let client = server.reqwest_client.clone();
                     tokio::spawn(async move {
                         let url = format!("{}/api/Server/Pick", api);
-
-                        let client = reqwest::Client::new();
 
                         let request = PickRequest {
                             token: token,
@@ -2089,10 +2085,9 @@ impl HQMRanked {
         let api = self.config.api.clone();
         let token = self.config.token.clone();
         let game_id = server.game.game_id.clone();
+        let client = server.reqwest_client.clone();
         tokio::spawn(async move {
             let url = format!("{}/api/Server/SaveGame", api);
-
-            let client = reqwest::Client::new();
 
             let request = SaveGameRequest {
                 token: token,
@@ -2154,7 +2149,7 @@ impl HQMRanked {
                 self.status = State::Waiting {
                     waiting_for_response: true,
                 };
-                self.request_player_points_and_win_rate(player_ids);
+                self.request_player_points_and_win_rate(server,player_ids);
             }
         } else if let State::Game { paused } = self.status {
             if server.game.time % 1000 == 0 && !paused {

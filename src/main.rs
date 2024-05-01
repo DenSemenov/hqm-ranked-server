@@ -129,6 +129,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             x.parse::<f32>().unwrap()
         });
 
+        let token = server_section
+                    .get("token")
+                    .unwrap()
+                    .parse::<String>()
+                    .unwrap();
+
         let config = HQMServerConfiguration {
             welcome: welcome_str,
             password: server_password,
@@ -137,6 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             replay_saving,
             server_name,
             server_service,
+            token
         };
 
         // Physics
