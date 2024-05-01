@@ -314,6 +314,7 @@ pub struct HQMServer {
     replay_queue: VecDeque<ReplayElement>,
     requested_replays: VecDeque<(u32, u32, Option<HQMServerPlayerIndex>)>,
     game_id: u32,
+    pub game_uuid: String,
     pub is_muted: bool,
     pub reqwest_client: reqwest::Client,
 
@@ -1302,7 +1303,7 @@ impl HQMServer {
             let replay_data = replay_data.freeze();
             let time = old_game.start_time.format("%Y-%m-%dT%H%M%S").to_string();
             let gm = old_game.game_id;
-            let game_id = self.game.game_id.clone();
+            let game_id = self.game_uuid.clone();
             let file_name = format!("{}.{}.hrp", self.config.server_name, time);
             let server_name = self.config.server_name.clone();
             let token = self.config.token.clone();
@@ -1465,6 +1466,7 @@ pub async fn run_server<B: HQMServerBehaviour>(
         is_muted: false,
         config,
         game_id: 1,
+        game_uuid: String::from(""),
         replay_queue: VecDeque::new(),
         requested_replays: VecDeque::new(),
         reqwest_client: reqwest_client.clone(),

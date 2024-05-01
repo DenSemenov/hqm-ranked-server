@@ -1314,6 +1314,7 @@ impl HQMRanked {
                     captainBlue,
                 } => {
                     server.game.game_id = gameId;
+                    server.game_uuid = server.game.game_id.clone();
 
                     if !matches!(
                         self.status,
