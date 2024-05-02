@@ -1854,7 +1854,7 @@ fn get_packets(objects: &[HQMGameObject]) -> smallvec::SmallVec<[HQMObjectPacket
 
 async fn get_master_server(client: &reqwest::Client) -> Result<SocketAddr, Box<dyn Error>> {
     let s = client
-        .get("http://www.crypticsea.com/anewzero/serverinfo.php")
+        .get("https://sam2.github.io/HQMMasterServerEndpoint/")
         .send()
         .await?
         .text()
