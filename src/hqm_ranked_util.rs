@@ -67,6 +67,19 @@ pub struct SaveGameRequest {
     pub gameId: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct HeartbeatRequest {
+    pub token: String,
+    pub name: String,
+    pub loggedIn: usize,
+    pub teamMax: usize,
+    pub period: u32,
+    pub time: u32,
+    pub redScore: u32,
+    pub blueScore: u32,
+    pub state: usize,
+}
+
 #[derive(Clone)]
 pub struct RHQMQueuePlayer {
     pub player_id: i32,
@@ -254,6 +267,8 @@ pub struct HQMRankedConfiguration {
     pub notification: bool,
     pub team_max: usize,
 
+    pub server_name: String,
+
     pub api: String,
     pub token: String,
 }
@@ -295,6 +310,8 @@ pub struct HQMRanked {
 
     pub rhqm_game: RHQMGame,
 
+    pub tick: u32,
+
     pub(crate) sender: crossbeam_channel::Sender<ApiResponse>,
     pub(crate) receiver: crossbeam_channel::Receiver<ApiResponse>,
 }
@@ -326,6 +343,9 @@ impl HQMRanked {
             status: State::Waiting {
                 waiting_for_response: false,
             },
+
+            tick: 0,
+
             rhqm_game: RHQMGame::new(),
 
             sender,
@@ -1050,6 +1070,62 @@ impl HQMRanked {
         server.messages.add_server_chat_message_str("Icing");
     }
 
+    pub fn main_tick(
+        &mut self,
+        server: &mut HQMServer,
+    )  {
+        self.tick+=1;
+
+        if self.tick %100 == 0{
+            let api = self.config.api.clone();
+            let token = self.config.token.clone();
+            let server_name = self.config.server_name.clone();
+            let logged_in = self.queued_players.len();
+            let team_max = self.config.team_max.clone();
+            let period = server.game.period.clone();
+            let time = server.game.time.clone();
+            let red_score = server.game.red_score.clone();
+            let blue_score = server.game.blue_score.clone();
+            let mut state = 0;
+
+            if let State::Waiting {
+                waiting_for_response,
+            } = self.status
+            {
+                state = 0;
+            } else if let State::Game { paused } = self.status {
+                state = 2;
+            } else if let State::CaptainsPicking {
+                ref mut time_left, ..
+            } = self.status
+            {
+                state = 1;
+            }
+
+            let client = server.reqwest_client.clone();
+            tokio::spawn(async move {
+                let url = format!("{}/api/Server/Heartbeat", api);
+
+                let request = HeartbeatRequest {
+                    token: token,
+                    name: server_name,
+                    loggedIn:logged_in,
+                    teamMax: team_max,
+                    period: period,
+                    time: time,
+                    redScore: red_score,
+                    blueScore: blue_score,
+                    state: state
+                };
+
+                let _response: reqwest::Response =
+                    client.post(url).json(&request).send().await.unwrap();
+
+                Ok::<_, anyhow::Error>(())
+            });
+        }
+    }
+
     pub fn after_tick(
         &mut self,
         server: &mut HQMServer,
@@ -1109,6 +1185,7 @@ impl HQMRanked {
                 self.start_next_replay = None;
             }
         }
+
         match_events
     }
 

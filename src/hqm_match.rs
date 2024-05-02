@@ -189,6 +189,10 @@ impl HQMServerBehaviour for HQMMatchBehaviour {
         self.update_players(server);
     }
 
+    fn main_tick(&mut self, server: &mut HQMServer) {
+        
+    }
+
     fn after_tick(&mut self, server: &mut HQMServer, events: &[HQMSimulationEvent]) {
         self.m.after_tick(server, events);
     }

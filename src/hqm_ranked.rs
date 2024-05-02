@@ -108,6 +108,10 @@ impl HQMServerBehaviour for HQMRankedBehaviour {
         server.history_length = 1000;
     }
 
+    fn main_tick(&mut self, server: &mut HQMServer) {
+        self.m.main_tick(server);
+    }
+
     fn before_tick(&mut self, server: &mut HQMServer) {
         self.update_players(server);
     }

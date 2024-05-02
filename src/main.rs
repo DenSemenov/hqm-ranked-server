@@ -314,6 +314,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .parse::<String>()
                     .unwrap();
 
+                let server_name = server_section
+                    .get("name")
+                    .unwrap()
+                    .parse::<String>()
+                    .unwrap();
+
                 let match_config = HQMRankedConfiguration {
                     time_period: rules_time_period,
                     time_warmup: rules_time_warmup,
@@ -334,6 +340,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     picking_mode,
                     notification: true,
                     team_max: server_team_max,
+                    server_name:server_name,
                     api,
                     token
                 };

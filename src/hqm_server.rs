@@ -1103,6 +1103,10 @@ impl HQMServer {
         return self.players.iter().find(|(_, x)| x.is_none()).map(|x| x.0);
     }
 
+    fn main_tick<B: HQMServerBehaviour>(&mut self, behaviour: &mut B) {
+        behaviour.main_tick(self);
+    }
+
     fn game_step<B: HQMServerBehaviour>(&mut self, behaviour: &mut B) {
         self.game.game_step = self.game.game_step.wrapping_add(1);
 
@@ -1274,6 +1278,8 @@ impl HQMServer {
             self.new_game(new_game);
             self.allow_join = true;
         }
+
+        self.main_tick(behaviour);
     }
 
     pub fn new_game(&mut self, new_game: HQMGame) {
@@ -2085,6 +2091,7 @@ pub struct HQMServerConfiguration {
 pub trait HQMServerBehaviour {
     fn init(&mut self, _server: &mut HQMServer) {}
 
+    fn main_tick(&mut self, server: &mut HQMServer);
     fn before_tick(&mut self, server: &mut HQMServer);
     fn after_tick(&mut self, server: &mut HQMServer, events: &[HQMSimulationEvent]);
     fn handle_command(
