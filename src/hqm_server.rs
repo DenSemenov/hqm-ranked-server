@@ -1307,6 +1307,7 @@ impl HQMServer {
             let file_name = format!("{}.{}.hrp", self.config.server_name, time);
             let server_name = self.config.server_name.clone();
             let token = self.config.token.clone();
+            info!("{} {}", game_id, token);
             match self.config.replay_saving {
                 ReplaySaving::File => {
                     tokio::spawn(async move {
