@@ -68,6 +68,20 @@ pub struct SaveGameRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct SaveGameResponse {
+    pub mvp: String,
+    pub players:Vec<SaveGamePlayerResponse>
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SaveGamePlayerResponse {
+    pub id: i32,
+    pub score: i32,
+    pub total: i32,
+}
+
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct HeartbeatRequest {
     pub token: String,
     pub name: String,
@@ -148,6 +162,10 @@ pub enum ApiResponse {
         players: Vec<APIGameStartPlayerResponse>,
         captainRed: i32,
         captainBlue: i32,
+    },
+    GameEnded{
+        mvp: String,
+        players:Vec<SaveGamePlayerResponse>
     },
     Error {
         error_message: String,
@@ -1440,6 +1458,34 @@ impl HQMRanked {
                         }
                     }
                 }
+                ApiResponse::GameEnded {
+                    mvp,
+                    players,
+                } => {
+                    let msg = format!(
+                        "[Server] MVP: {}",
+                        mvp
+                    );
+                    server.messages.add_server_chat_message(msg);
+
+                    for p in players {
+                        let rhqm_player = self.rhqm_game.get_player_by_id(p.id.clone());
+                        if let Some(rhqm_player) = rhqm_player {
+                            let p_index = rhqm_player.player_index;
+                            if let Some(p_index) = rhqm_player.player_index {
+                                let player_msg = format!(
+                                    "[Server] Score: {}, total: {}",
+                                    p.score,
+                                    p.total
+                                );
+                                server.messages.add_directed_server_chat_message(
+                                    player_msg,
+                                    p_index
+                                );
+                            } 
+                        } 
+                    }
+                }
                 ApiResponse::Error { error_message } => {
                     server.messages.add_server_chat_message(error_message);
                 }
@@ -2164,6 +2210,7 @@ impl HQMRanked {
         let token = self.config.token.clone();
         let game_id = server.game.game_id.clone();
         let client = server.reqwest_client.clone();
+        let sender = self.sender.clone();
         tokio::spawn(async move {
             let url = format!("{}/api/Server/SaveGame", api);
 
@@ -2172,8 +2219,28 @@ impl HQMRanked {
                 gameId: game_id,
             };
 
-            let _response: reqwest::Response =
-                client.post(url).json(&request).send().await.unwrap();
+            let response: reqwest::Response = client.post(url).json(&request).send().await.unwrap();
+
+             match response.status() {
+                reqwest::StatusCode::OK => {
+                    match response.json::<SaveGameResponse>().await {
+                        Ok(parsed) => {
+                            sender.send(ApiResponse::GameEnded {
+                                mvp: parsed.mvp,
+                                players: parsed.players,
+                            })?;
+                        }
+                        Err(_) => sender.send(ApiResponse::Error {
+                            error_message: "[Server] Can't parse response".to_owned(),
+                        })?,
+                    };
+                }
+                _ => {
+                    sender.send(ApiResponse::Error {
+                        error_message: "[Server] Can't connect to host".to_owned(),
+                    })?;
+                }
+            }
 
             Ok::<_, anyhow::Error>(())
         });
