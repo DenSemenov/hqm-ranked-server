@@ -70,7 +70,7 @@ pub struct SaveGameRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SaveGameResponse {
     pub mvp: String,
-    pub players:Vec<SaveGamePlayerResponse>
+    pub players: Vec<SaveGamePlayerResponse>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -78,8 +78,8 @@ pub struct SaveGamePlayerResponse {
     pub id: i32,
     pub score: i32,
     pub total: i32,
+    pub pos: i32,
 }
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct HeartbeatRequest {
@@ -163,9 +163,9 @@ pub enum ApiResponse {
         captainRed: i32,
         captainBlue: i32,
     },
-    GameEnded{
+    GameEnded {
         mvp: String,
-        players:Vec<SaveGamePlayerResponse>
+        players: Vec<SaveGamePlayerResponse>,
     },
     Error {
         error_message: String,
@@ -289,6 +289,8 @@ pub struct HQMRankedConfiguration {
 
     pub api: String,
     pub token: String,
+
+    pub delay: u32,
 }
 
 pub enum HQMRankedEvent {
@@ -330,6 +332,8 @@ pub struct HQMRanked {
 
     pub tick: u32,
 
+    pub delay_timer: u32,
+
     pub(crate) sender: crossbeam_channel::Sender<ApiResponse>,
     pub(crate) receiver: crossbeam_channel::Receiver<ApiResponse>,
 }
@@ -337,7 +341,7 @@ pub struct HQMRanked {
 impl HQMRanked {
     pub fn new(config: HQMRankedConfiguration) -> Self {
         let (sender, receiver) = crossbeam_channel::unbounded();
-
+        let delay_timer = config.delay.clone() * 100;
         Self {
             config,
             paused: true,
@@ -363,7 +367,7 @@ impl HQMRanked {
             },
 
             tick: 0,
-
+            delay_timer: delay_timer * 100,
             rhqm_game: RHQMGame::new(),
 
             sender,
@@ -1088,13 +1092,10 @@ impl HQMRanked {
         server.messages.add_server_chat_message_str("Icing");
     }
 
-    pub fn main_tick(
-        &mut self,
-        server: &mut HQMServer,
-    )  {
-        self.tick+=1;
+    pub fn main_tick(&mut self, server: &mut HQMServer) {
+        self.tick += 1;
 
-        if self.tick %100 == 0{
+        if self.tick % 100 == 0 {
             let api = self.config.api.clone();
             let token = self.config.token.clone();
             let server_name = self.config.server_name.clone();
@@ -1127,13 +1128,13 @@ impl HQMRanked {
                 let request = HeartbeatRequest {
                     token: token,
                     name: server_name,
-                    loggedIn:logged_in,
+                    loggedIn: logged_in,
                     teamMax: team_max,
                     period: period,
                     time: time,
                     redScore: red_score,
                     blueScore: blue_score,
-                    state: state
+                    state: state,
                 };
 
                 let _response: reqwest::Response =
@@ -1458,32 +1459,23 @@ impl HQMRanked {
                         }
                     }
                 }
-                ApiResponse::GameEnded {
-                    mvp,
-                    players,
-                } => {
-                    let msg = format!(
-                        "[Server] MVP: {}",
-                        mvp
-                    );
+                ApiResponse::GameEnded { mvp, players } => {
+                    let msg = format!("[Server] MVP: {}", mvp);
                     server.messages.add_server_chat_message(msg);
 
                     for p in players {
                         let rhqm_player = self.rhqm_game.get_player_by_id(p.id.clone());
                         if let Some(rhqm_player) = rhqm_player {
-                            let p_index = rhqm_player.player_index;
                             if let Some(p_index) = rhqm_player.player_index {
                                 let player_msg = format!(
-                                    "[Server] Score: {}, total: {}",
-                                    p.score,
-                                    p.total
+                                    "[Server] Rating: {} ({}) #{}",
+                                    p.total, p.score, p.pos
                                 );
-                                server.messages.add_directed_server_chat_message(
-                                    player_msg,
-                                    p_index
-                                );
-                            } 
-                        } 
+                                server
+                                    .messages
+                                    .add_directed_server_chat_message(player_msg, p_index);
+                            }
+                        }
                     }
                 }
                 ApiResponse::Error { error_message } => {
@@ -1686,7 +1678,11 @@ impl HQMRanked {
         }
     }
 
-    pub(crate) fn request_player_points_and_win_rate(&self, server: &mut HQMServer,player_ids: Vec<i32>) {
+    pub(crate) fn request_player_points_and_win_rate(
+        &self,
+        server: &mut HQMServer,
+        player_ids: Vec<i32>,
+    ) {
         let sender = self.sender.clone();
         let api = self.config.api.clone();
         let token = self.config.token.clone();
@@ -2221,7 +2217,7 @@ impl HQMRanked {
 
             let response: reqwest::Response = client.post(url).json(&request).send().await.unwrap();
 
-             match response.status() {
+            match response.status() {
                 reqwest::StatusCode::OK => {
                     match response.json::<SaveGameResponse>().await {
                         Ok(parsed) => {
@@ -2288,13 +2284,19 @@ impl HQMRanked {
                 server.spawn_skater(player_index, HQMTeam::Red, pos, rot);
             }
             if !waiting_for_response && self.queued_players.len() >= self.config.team_max * 2 {
-                let slice = &self.queued_players[0..(self.config.team_max * 2)];
-                let (players, ips, player_ids) = self.get_player_and_ips(server, slice);
+                if self.delay_timer != 0 {
+                    self.delay_timer -= 1;
+                } else {
+                    let slice = &self.queued_players[0..(self.config.team_max * 2)];
+                    let (players, ips, player_ids) = self.get_player_and_ips(server, slice);
 
-                self.status = State::Waiting {
-                    waiting_for_response: true,
-                };
-                self.request_player_points_and_win_rate(server,player_ids);
+                    self.status = State::Waiting {
+                        waiting_for_response: true,
+                    };
+                    self.request_player_points_and_win_rate(server, player_ids);
+                }
+            } else {
+                self.delay_timer = self.config.delay * 100;
             }
         } else if let State::Game { paused } = self.status {
             if server.game.time % 1000 == 0 && !paused {

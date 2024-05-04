@@ -130,10 +130,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         });
 
         let token = server_section
-                    .get("token")
-                    .unwrap()
-                    .parse::<String>()
-                    .unwrap();
+            .get("token")
+            .unwrap()
+            .parse::<String>()
+            .unwrap();
 
         let config = HQMServerConfiguration {
             welcome: welcome_str,
@@ -143,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             replay_saving,
             server_name,
             server_service,
-            token
+            token,
         };
 
         // Physics
@@ -320,6 +320,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .parse::<String>()
                     .unwrap();
 
+                let delay = get_optional(game_section, "delay", 5, |x| x.parse::<u32>().unwrap());
+
                 let match_config = HQMRankedConfiguration {
                     time_period: rules_time_period,
                     time_warmup: rules_time_warmup,
@@ -340,9 +342,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     picking_mode,
                     notification: true,
                     team_max: server_team_max,
-                    server_name:server_name,
+                    server_name: server_name,
                     api,
-                    token
+                    token,
+                    delay,
                 };
 
                 let _ = hqm_server::run_server(
