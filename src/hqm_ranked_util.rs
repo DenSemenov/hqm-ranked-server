@@ -94,6 +94,19 @@ pub struct HeartbeatRequest {
     pub state: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ReportRequest {
+    pub token: String,
+    pub fromId: i32,
+    pub toId: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ReportResponse {
+    pub message: String,
+    pub success: bool,
+}
+
 #[derive(Clone)]
 pub struct RHQMQueuePlayer {
     pub player_id: i32,
@@ -166,6 +179,11 @@ pub enum ApiResponse {
     GameEnded {
         mvp: String,
         players: Vec<SaveGamePlayerResponse>,
+    },
+    Report {
+        message: String,
+        success: bool,
+        player_index: HQMServerPlayerIndex,
     },
     Error {
         error_message: String,
@@ -1478,6 +1496,21 @@ impl HQMRanked {
                         }
                     }
                 }
+                ApiResponse::Report {
+                    message,
+                    success,
+                    player_index,
+                } => {
+                    if success {
+                        let msg = format!("{}", message);
+                        server.messages.add_server_chat_message(msg);
+                    } else {
+                        let player_msg = format!("{}", message);
+                        server
+                            .messages
+                            .add_directed_server_chat_message(player_msg, player_index);
+                    }
+                }
                 ApiResponse::Error { error_message } => {
                     server.messages.add_server_chat_message(error_message);
                 }
@@ -1601,6 +1634,62 @@ impl HQMRanked {
 
                 server.messages.add_server_chat_message(msg);
                 self.rhqm_game.need_to_send = true;
+            }
+        }
+    }
+
+    pub fn report(
+        &mut self,
+        server: &mut HQMServer,
+        player_index: HQMServerPlayerIndex,
+        reported_player_index: HQMServerPlayerIndex,
+    ) {
+        if let Some(reported_from) = self.rhqm_game.get_player_by_index(player_index) {
+            let reported_from_rhqm_id = reported_from.player_id.clone();
+
+            if let Some(reported_to) = self.rhqm_game.get_player_by_index(reported_player_index) {
+                let reported_to_rhqm_id = reported_to.player_id.clone();
+
+                let sender = self.sender.clone();
+                let api = self.config.api.clone();
+                let token = self.config.token.clone();
+                let client = server.reqwest_client.clone();
+                tokio::spawn(async move {
+                    let url = format!("{}/api/Server/Report", api);
+
+                    let request = ReportRequest {
+                        token: token,
+                        fromId: reported_from_rhqm_id,
+                        toId: reported_to_rhqm_id,
+                    };
+
+                    let response: reqwest::Response =
+                        client.post(url).json(&request).send().await.unwrap();
+
+                    match response.status() {
+                        reqwest::StatusCode::OK => {
+                            match response.json::<ReportResponse>().await {
+                                Ok(parsed) => {
+                                    sender.send(ApiResponse::Report {
+                                        message: parsed.message,
+                                        success: parsed.success,
+                                        player_index: player_index,
+                                    })?;
+                                }
+                                Err(_) => sender.send(ApiResponse::Error {
+                                    error_message: "[Server] Can't parse response".to_owned(),
+                                })?,
+                            };
+                        }
+                        _ => {
+                            sender.send(ApiResponse::Error {
+                                error_message: "[Server] Can't connect to host".to_owned(),
+                            })?;
+                        }
+                    }
+
+                    Ok::<_, anyhow::Error>(())
+                });
             }
         }
     }
