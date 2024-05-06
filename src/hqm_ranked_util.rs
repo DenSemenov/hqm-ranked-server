@@ -2,8 +2,8 @@ use crate::hqm_game::{
     HQMGame, HQMGameWorld, HQMObjectIndex, HQMPhysicsConfiguration, HQMPuck, HQMRinkFaceoffSpot,
     HQMRinkLine, HQMRinkSide, HQMRulesState, HQMTeam,
 };
-use crate::hqm_server::HQMSpawnPoint;
 use crate::hqm_server::{HQMServer, HQMServerPlayer, HQMServerPlayerIndex, HQMServerPlayerList};
+use crate::hqm_server::{HQMServerPlayerData, HQMSpawnPoint};
 use crate::hqm_simulate::HQMSimulationEvent;
 use itertools::Itertools;
 use nalgebra::{Point3, Rotation3, Vector3};
@@ -107,6 +107,19 @@ pub struct ReportResponse {
     pub success: bool,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ResignRequest {
+    pub token: String,
+    pub gameId: String,
+    pub team: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ResetRequest {
+    pub token: String,
+    pub gameId: String,
+}
+
 #[derive(Clone)]
 pub struct RHQMQueuePlayer {
     pub player_id: i32,
@@ -128,6 +141,24 @@ pub enum State {
     Game {
         paused: bool,
     },
+}
+#[derive(Clone)]
+pub enum Vote {
+    Resign {
+        player_indexes: Vec<HQMServerPlayerIndex>,
+        team: HQMTeam,
+    },
+    Kick {
+        player_indexes: Vec<HQMServerPlayerIndex>,
+        kick: HQMServerPlayerIndex,
+    },
+    Mute {
+        player_indexes: Vec<HQMServerPlayerIndex>,
+    },
+    Reset {
+        player_indexes: Vec<HQMServerPlayerIndex>,
+    },
+    None,
 }
 
 pub enum RHQMGameGoalie {
@@ -1223,6 +1254,17 @@ impl HQMRanked {
             }
         }
 
+        if server.game.vote_timer != 0 {
+            server.game.vote_timer -= 1;
+
+            if server.game.vote_timer == 0 {
+                server
+                    .messages
+                    .add_server_chat_message_str("[Server] Vote canceled");
+                server.game.vote = Vote::None;
+            }
+        }
+
         match_events
     }
 
@@ -2088,6 +2130,298 @@ impl HQMRanked {
                     .add_directed_server_chat_message(msg.clone(), player_index);
             }
         }
+    }
+
+    pub fn send_resign(&self, server: &mut HQMServer, team: HQMTeam) {
+        let api = self.config.api.clone();
+        let token = self.config.token.clone();
+        let game_id = server.game.game_id.clone();
+
+        let mut resigned_team = 0;
+        if team == HQMTeam::Blue {
+            resigned_team = 1;
+        }
+
+        let client = server.reqwest_client.clone();
+
+        server.game.game_over = true;
+
+        tokio::spawn(async move {
+            let url = format!("{}/api/Server/Resign", api);
+
+            let request = ResignRequest {
+                token: token,
+                gameId: game_id,
+                team: resigned_team,
+            };
+
+            let _response: reqwest::Response =
+                client.post(url).json(&request).send().await.unwrap();
+
+            Ok::<_, anyhow::Error>(())
+        });
+    }
+
+    pub fn send_reset(&mut self, server: &mut HQMServer) {
+        let api = self.config.api.clone();
+        let token = self.config.token.clone();
+        let game_id = server.game.game_id.clone();
+
+        let client = server.reqwest_client.clone();
+
+        let msg = format!("Game reset by vote");
+        server.new_game(self.create_game());
+        server.messages.add_server_chat_message(msg);
+
+        tokio::spawn(async move {
+            let url = format!("{}/api/Server/Reset", api);
+
+            let request = ResetRequest {
+                token: token,
+                gameId: game_id,
+            };
+
+            let _response: reqwest::Response =
+                client.post(url).json(&request).send().await.unwrap();
+
+            Ok::<_, anyhow::Error>(())
+        });
+    }
+
+    pub fn kick_by_vote(
+        &mut self,
+        server: &mut HQMServer,
+        kick_player_index: HQMServerPlayerIndex,
+    ) {
+        if let Some(kick_player) = server.players.get(kick_player_index) {
+            let kick_player_name = kick_player.player_name.clone();
+            server.remove_player(kick_player_index, true);
+
+            let msg = format!("{} kicked by vote", kick_player_name);
+            server.messages.add_server_chat_message(msg);
+        }
+    }
+
+    pub fn resign(&self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
+        if let Some(player) = self.rhqm_game.get_player_by_index(player_index) {
+            let name = player.player_name.clone();
+
+            let current_vote = server.game.vote.clone();
+            if let Vote::Resign {
+                mut player_indexes,
+                team,
+            } = current_vote
+            {
+                let player = server.players.get(player_index);
+                let found_team = if let Some(team) = player.and_then(|x| x.object).map(|x| x.1) {
+                    team
+                } else {
+                    return;
+                };
+
+                if found_team == team {
+                    if player_indexes.iter().any(|&i| i == player_index) {
+                        let msg = format!("[Server] You can vote once");
+                        server
+                            .messages
+                            .add_directed_server_chat_message(msg, player_index);
+                    } else {
+                        player_indexes.push(player_index);
+                        let count = player_indexes.len();
+                        server.game.vote = Vote::Resign {
+                            player_indexes: player_indexes,
+                            team: team,
+                        };
+
+                        let msg = format!(
+                            "[Server] {} voted for resign {}/{}",
+                            name, count, self.config.team_max
+                        );
+                        server.messages.add_server_chat_message(msg);
+
+                        if count == self.config.team_max - 1 {
+                            self.send_resign(server, team);
+
+                            server.game.vote = Vote::None;
+                            server.game.vote_timer = 0;
+                        }
+                    }
+                } else {
+                    let msg = format!("[Server] Another team started vote");
+                    server
+                        .messages
+                        .add_directed_server_chat_message(msg, player_index);
+                }
+            } else if let Vote::None {} = server.game.vote {
+                let player = server.players.get(player_index);
+                let team = if let Some(team) = player.and_then(|x| x.object).map(|x| x.1) {
+                    team
+                } else {
+                    return;
+                };
+                server.game.vote = Vote::Resign {
+                    player_indexes: [player_index].to_vec(),
+                    team: team,
+                };
+                server.game.vote_timer = 2000;
+
+                let msg = format!(
+                    "[Server] {} voted for resign {}/{}",
+                    name, 1, self.config.team_max
+                );
+                server.messages.add_server_chat_message(msg);
+            } else {
+                let msg = format!("[Server] Another vote started");
+                server
+                    .messages
+                    .add_directed_server_chat_message(msg, player_index);
+            }
+        }
+    }
+
+    pub fn vote_reset(&mut self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
+        if let Some(player) = self.rhqm_game.get_player_by_index(player_index) {
+            let name = player.player_name.clone();
+
+            let current_vote = server.game.vote.clone();
+            if let Vote::Reset { mut player_indexes } = current_vote {
+                if player_indexes.iter().any(|&i| i == player_index) {
+                    let msg = format!("[Server] You can vote once");
+                    server
+                        .messages
+                        .add_directed_server_chat_message(msg, player_index);
+                } else {
+                    player_indexes.push(player_index);
+                    let count = player_indexes.len();
+                    server.game.vote = Vote::Reset {
+                        player_indexes: player_indexes,
+                    };
+
+                    let msg = format!(
+                        "[Server] {} voted for reset {}/{}",
+                        name,
+                        count,
+                        self.config.team_max * 2 - 2
+                    );
+                    server.messages.add_server_chat_message(msg);
+
+                    if count == self.config.team_max * 2 - 2 {
+                        self.send_reset(server);
+                        server.game.vote = Vote::None;
+                        server.game.vote_timer = 0;
+                    }
+                }
+            } else if let Vote::None {} = server.game.vote {
+                server.game.vote = Vote::Reset {
+                    player_indexes: [player_index].to_vec(),
+                };
+                server.game.vote_timer = 2000;
+
+                let msg = format!(
+                    "[Server] {} voted for reset {}/{}",
+                    name,
+                    1,
+                    self.config.team_max * 2 - 2
+                );
+                server.messages.add_server_chat_message(msg);
+            } else {
+                let msg = format!("[Server] Another vote started");
+                server
+                    .messages
+                    .add_directed_server_chat_message(msg, player_index);
+            }
+        }
+    }
+
+    pub fn vote_kick(
+        &mut self,
+        server: &mut HQMServer,
+        player_index: HQMServerPlayerIndex,
+        kick_player_index: HQMServerPlayerIndex,
+    ) {
+        if let Some(player) = self.rhqm_game.get_player_by_index(player_index) {
+            let name = player.player_name.clone();
+
+            if let Some(kick_player) = self.rhqm_game.get_player_by_index(kick_player_index) {
+                let kick_player_name = kick_player.player_name.clone();
+                let current_vote = server.game.vote.clone();
+                if let Vote::Kick {
+                    mut player_indexes,
+                    kick,
+                } = current_vote
+                {
+                    if player_indexes.iter().any(|&i| i == player_index) {
+                        let msg = format!("[Server] You can vote once");
+                        server
+                            .messages
+                            .add_directed_server_chat_message(msg, player_index);
+                    } else {
+                        player_indexes.push(player_index);
+                        let count = player_indexes.len();
+                        server.game.vote = Vote::Kick {
+                            player_indexes: player_indexes,
+                            kick: kick,
+                        };
+
+                        let msg = format!(
+                            "[Server] {} voted for kick {} {}/{}",
+                            name,
+                            kick_player_name,
+                            count,
+                            self.config.team_max * 2 - 2
+                        );
+                        server.messages.add_server_chat_message(msg);
+
+                        if count == self.config.team_max * 2 - 2 {
+                            self.kick_by_vote(server, kick);
+                            server.game.vote = Vote::None;
+                            server.game.vote_timer = 0;
+                        }
+                    }
+                } else if let Vote::None {} = server.game.vote {
+                    server.game.vote = Vote::Kick {
+                        player_indexes: [player_index].to_vec(),
+                        kick: kick_player_index,
+                    };
+                    server.game.vote_timer = 2000;
+
+                    let msg = format!(
+                        "[Server] {} voted for kick {} {}/{}",
+                        name,
+                        kick_player_name,
+                        1,
+                        self.config.team_max * 2 - 2
+                    );
+                    server.messages.add_server_chat_message(msg);
+                } else {
+                    let msg = format!("[Server] Another vote started");
+                    server
+                        .messages
+                        .add_directed_server_chat_message(msg, player_index);
+                }
+            }
+        }
+    }
+
+    pub fn vote_mute(&self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
+        //todo
+    }
+
+    pub fn send_help(&self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
+        server
+            .messages
+            .add_directed_server_chat_message_str("/report # - report player", player_index);
+        server
+            .messages
+            .add_directed_server_chat_message_str("/resign or /rs - vote to resign", player_index);
+        server.messages.add_directed_server_chat_message_str(
+            "/votereset or /vr - vote to cancel game",
+            player_index,
+        );
+        server.messages.add_directed_server_chat_message_str(
+            "/votekick # or /vk # - vote to kick player",
+            player_index,
+        );
     }
 
     fn send_available_picks(&self, server: &mut HQMServer) {

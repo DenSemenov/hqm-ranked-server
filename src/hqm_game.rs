@@ -1,4 +1,5 @@
 use crate::hqm_parse;
+use crate::hqm_ranked_util::Vote;
 use nalgebra::{Matrix3, Point3, Rotation3, Vector2, Vector3};
 
 use std::fmt;
@@ -146,6 +147,9 @@ pub struct HQMGame {
     pub game_over: bool,
 
     pub game_id: String,
+
+    pub vote: Vote,
+    pub vote_timer: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +201,9 @@ impl HQMGame {
             game_over: false,
             game_step: u32::MAX,
             game_id: String::from(""),
+
+            vote: Vote::None,
+            vote_timer: 0,
         }
     }
 }

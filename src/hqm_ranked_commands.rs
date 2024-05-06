@@ -1,6 +1,6 @@
 use crate::hqm_game::HQMTeam;
 use crate::hqm_ranked_util::{
-    HQMIcingConfiguration, HQMRanked, HQMOffsideConfiguration, HQMOffsideLineConfiguration,
+    HQMIcingConfiguration, HQMOffsideConfiguration, HQMOffsideLineConfiguration, HQMRanked,
     HQMTwoLinePassConfiguration,
 };
 use crate::hqm_server::{HQMServer, HQMServerPlayerIndex};
@@ -20,6 +20,12 @@ impl HQMRanked {
                 server.admin_deny_message(player_index);
             }
         }
+    }
+
+    pub fn reset_by_vote(&mut self, server: &mut HQMServer) {
+        let msg = format!("Game reset by vote");
+        server.new_game(self.create_game());
+        server.messages.add_server_chat_message(msg);
     }
 
     pub fn start_game(&mut self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {

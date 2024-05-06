@@ -298,6 +298,23 @@ impl HQMServerBehaviour for HQMRankedBehaviour {
                     self.m.report(server, player_index, reported_player_index);
                 }
             }
+            "help" => {
+                self.m.send_help(server, player_index);
+            }
+            "rs" | "resign" => {
+                self.m.resign(server, player_index);
+            }
+            "vr" | "votereset" => {
+                self.m.vote_reset(server, player_index);
+            }
+            "vk" | "votekick" => {
+                if let Ok(kick_player_index) = arg.parse::<HQMServerPlayerIndex>() {
+                    self.m.vote_kick(server, player_index, kick_player_index);
+                }
+            }
+            "vm" | "votemute" => {
+                self.m.vote_mute(server, player_index);
+            }
             _ => {}
         };
     }
