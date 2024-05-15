@@ -14,13 +14,13 @@ use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::f32::consts::FRAC_PI_2;
-use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct APILoginResponse {
     pub id: i32,
     pub success: bool,
     pub errorMessage: String,
+    pub oldNickname: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -200,6 +200,7 @@ pub enum ApiResponse {
     LoginSuccessful {
         player_id: i32,
         player_index: HQMServerPlayerIndex,
+        old_nickname: String,
     },
     GameStarted {
         gameId: String,
@@ -1460,8 +1461,9 @@ impl HQMRanked {
                 ApiResponse::LoginSuccessful {
                     player_id,
                     player_index,
+                    old_nickname,
                 } => {
-                    self.successful_login(server, player_index, player_id);
+                    self.successful_login(server, player_index, player_id, old_nickname);
                 }
                 ApiResponse::GameStarted {
                     gameId,
@@ -1622,6 +1624,7 @@ impl HQMRanked {
         server: &mut HQMServer,
         player_index: HQMServerPlayerIndex,
         player_id: i32,
+        old_nickname: String,
     ) {
         if let Some(player) = server.players.get(player_index) {
             self.verified_players.insert(player_index, player_id);
@@ -1665,6 +1668,9 @@ impl HQMRanked {
                 self.queued_players.push(player_item);
 
                 let mut old_nickname_text = String::from("");
+                if old_nickname.len() != 0 {
+                    old_nickname_text = format!(" ({})", old_nickname);
+                }
 
                 let msg = format!(
                     "[Server] {}{} logged in [{}/{}]",
@@ -1779,6 +1785,7 @@ impl HQMRanked {
                                         sender.send(ApiResponse::LoginSuccessful {
                                             player_id: parsed.id,
                                             player_index: player_index,
+                                            old_nickname: parsed.oldNickname,
                                         })?;
                                     } else {
                                         sender.send(ApiResponse::LoginFailed {
