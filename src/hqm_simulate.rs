@@ -439,7 +439,7 @@ fn update_player(
     // Turn player
     let turn = player.input.turn.clamp(-1.0, 1.0);
     let mut turn_change = &player.body.rot * Vector3::y();
-    if player.input.shift() {
+    if player.input.shift() && physics_config.shift_enabled {
         let mut velocity_adjustment = &player.body.rot * Vector3::x();
         velocity_adjustment[1] = 0.0;
         velocity_adjustment.normalize_mut();
@@ -525,7 +525,8 @@ fn update_player(
 
         let mut temp2 = unit_y.scale(temp1) - player.body.linear_velocity.scale(0.25);
         if temp2.dot(&unit_y) > 0.0 {
-            let (column, rejection_limit) = if player.input.shift() {
+            let (column, rejection_limit) = if player.input.shift() && physics_config.shift_enabled
+            {
                 (Vector3::x(), 0.4)
             } else {
                 (Vector3::z(), 1.2)
@@ -549,7 +550,7 @@ fn update_player(
         player.body.angular_velocity.scale_mut(0.975);
         let mut unit: Vector3<f32> = Vector3::y();
 
-        if !player.input.shift() {
+        if !player.input.shift() || !physics_config.shift_enabled {
             let axis = &player.body.rot * Vector3::z();
             let temp = -player.body.linear_velocity.dot(&axis) / physics_config.max_player_speed;
             rotate_vector_around_axis(&mut unit, &axis, 0.225 * turn * temp);

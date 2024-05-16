@@ -14,6 +14,7 @@ use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::f32::consts::FRAC_PI_2;
+use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct APILoginResponse {
@@ -341,6 +342,7 @@ pub struct HQMRankedConfiguration {
     pub token: String,
 
     pub delay: u32,
+    pub faceoff_shift: bool,
 }
 
 pub enum HQMRankedEvent {
@@ -492,6 +494,10 @@ impl HQMRanked {
         self.pass = None;
 
         self.faceoff_game_step = server.game.game_step;
+
+        if self.config.faceoff_shift == false {
+            server.game.world.physics_config.shift_enabled = false;
+        }
     }
 
     pub(crate) fn update_game_over(&mut self, server: &mut HQMServer) {
@@ -754,6 +760,7 @@ impl HQMRanked {
         player: HQMObjectIndex,
         puck_index: HQMObjectIndex,
     ) {
+        server.game.world.physics_config.shift_enabled = true;
         if let Some((player_index, touching_team, _)) = server.players.get_from_object_index(player)
         {
             if let Some(puck) = server.game.world.objects.get_puck_mut(puck_index) {

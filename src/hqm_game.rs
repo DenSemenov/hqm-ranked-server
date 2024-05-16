@@ -164,6 +164,7 @@ pub struct HQMPhysicsConfiguration {
     pub player_shift_acceleration: f32,
     pub max_player_shift_speed: f32,
     pub player_shift_turning: f32,
+    pub shift_enabled: bool,
 }
 
 impl HQMGame {

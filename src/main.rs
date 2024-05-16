@@ -198,6 +198,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             puck_rink_friction,
             player_turning,
             player_shift_turning,
+            shift_enabled: true,
         };
 
         let file_appender = tracing_appender::rolling::daily("log", log_name);
@@ -322,6 +323,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 let delay = get_optional(game_section, "delay", 5, |x| x.parse::<u32>().unwrap());
 
+                let faceoff_shift = get_optional(game_section, "faceoff_shift", true, |x| {
+                    x.parse::<bool>().unwrap()
+                });
+
                 let match_config = HQMRankedConfiguration {
                     time_period: rules_time_period,
                     time_warmup: rules_time_warmup,
@@ -346,6 +351,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     api,
                     token,
                     delay,
+                    faceoff_shift,
                 };
 
                 let _ = hqm_server::run_server(
