@@ -2,8 +2,8 @@ use crate::hqm_game::{
     HQMGame, HQMGameWorld, HQMObjectIndex, HQMPhysicsConfiguration, HQMPuck, HQMRinkFaceoffSpot,
     HQMRinkLine, HQMRinkSide, HQMRulesState, HQMTeam,
 };
+use crate::hqm_server::HQMSpawnPoint;
 use crate::hqm_server::{HQMServer, HQMServerPlayer, HQMServerPlayerIndex, HQMServerPlayerList};
-use crate::hqm_server::{HQMServerPlayerData, HQMSpawnPoint};
 use crate::hqm_simulate::HQMSimulationEvent;
 use itertools::Itertools;
 use nalgebra::{Point3, Rotation3, Vector3};
@@ -14,7 +14,6 @@ use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::f32::consts::FRAC_PI_2;
-use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct APILoginResponse {
@@ -22,6 +21,7 @@ pub struct APILoginResponse {
     pub success: bool,
     pub errorMessage: String,
     pub oldNickname: String,
+    pub sendToAll: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -176,15 +176,6 @@ pub enum RHQMGameGoalie {
 }
 
 #[derive(Clone)]
-pub struct GameEvent {
-    pub player_id: i32,
-    pub type_id: u32,
-    pub speed: f32,
-    pub time: u32,
-    pub period: u32,
-}
-
-#[derive(Clone)]
 pub struct RHQMGamePlayer {
     pub player_id: i32,
     pub player_name: String,
@@ -197,6 +188,7 @@ pub enum ApiResponse {
     LoginFailed {
         player_index: HQMServerPlayerIndex,
         error_message: String,
+        send_to_all: bool,
     },
     LoginSuccessful {
         player_id: i32,
@@ -224,15 +216,8 @@ pub enum ApiResponse {
 }
 
 pub struct RHQMGame {
-    pub(crate) notify_timer: usize,
-
-    pub(crate) need_to_send: bool,
-
     pub(crate) game_players: Vec<RHQMGamePlayer>,
-    pub events: Vec<GameEvent>,
 
-    pub(crate) xpoints: Vec<f32>,
-    pub(crate) zpoints: Vec<f32>,
     pub(crate) data_saved: bool,
 
     pub rejoin_timer: HashMap<HQMServerPlayerIndex, u32>,
@@ -286,13 +271,8 @@ impl RHQMGame {
 
     pub(crate) fn new() -> Self {
         Self {
-            notify_timer: 0,
-
-            need_to_send: false,
             game_players: Vec::new(),
 
-            xpoints: Vec::new(),
-            zpoints: Vec::new(),
             data_saved: false,
 
             rejoin_timer: Default::default(),
@@ -301,7 +281,6 @@ impl RHQMGame {
 
             red_goalie: RHQMGameGoalie::Undefined,
             blue_goalie: RHQMGameGoalie::Undefined,
-            events: Vec::new(),
 
             pick_number: 0,
         }
@@ -577,20 +556,6 @@ impl HQMRanked {
 
                             if let Some(scoring_rhqm_player) = scoring_rhqm_player {
                                 scorer = scoring_rhqm_player.player_id;
-
-                                let x = this_puck.body.linear_velocity.norm();
-
-                                let speed = ((x * 100.0 * 3.6) * 100.0).round() / 100.0;
-
-                                let event = GameEvent {
-                                    player_id: scoring_rhqm_player.player_id,
-                                    type_id: 1,
-                                    speed,
-                                    time: server.game.time,
-                                    period: server.game.period,
-                                };
-
-                                self.rhqm_game.events.push(event);
                             }
                         }
                     } else {
@@ -1460,10 +1425,19 @@ impl HQMRanked {
                 ApiResponse::LoginFailed {
                     player_index,
                     error_message,
+                    send_to_all,
                 } => {
-                    server
-                        .messages
-                        .add_directed_server_chat_message(error_message, player_index);
+                    if send_to_all {
+                        if let Some(player) = server.players.get(player_index) {
+                            let msg =
+                                format!("[Server] Login macros detected by {}", player.player_name);
+                            server.messages.add_server_chat_message(msg);
+                        }
+                    } else {
+                        server
+                            .messages
+                            .add_directed_server_chat_message(error_message, player_index);
+                    }
                 }
                 ApiResponse::LoginSuccessful {
                     player_id,
@@ -1688,7 +1662,6 @@ impl HQMRanked {
                 );
 
                 server.messages.add_server_chat_message(msg);
-                self.rhqm_game.need_to_send = true;
             }
         }
     }
@@ -1766,6 +1739,8 @@ impl HQMRanked {
                     player_index,
                 );
             } else {
+                let already_verified = self.verified_players.get(&player_index).copied();
+
                 //login
                 let sender = self.sender.clone();
                 let username = (*player.player_name).clone();
@@ -1795,16 +1770,26 @@ impl HQMRanked {
                                             old_nickname: parsed.oldNickname,
                                         })?;
                                     } else {
-                                        sender.send(ApiResponse::LoginFailed {
-                                            player_index: player_index,
-                                            error_message: parsed.errorMessage,
-                                        })?;
+                                        if Some(parsed.id) == already_verified {
+                                            sender.send(ApiResponse::LoginSuccessful {
+                                                player_id: parsed.id,
+                                                player_index: player_index,
+                                                old_nickname: String::from(""),
+                                            })?;
+                                        } else {
+                                            sender.send(ApiResponse::LoginFailed {
+                                                player_index: player_index,
+                                                error_message: parsed.errorMessage,
+                                                send_to_all: parsed.sendToAll,
+                                            })?;
+                                        }
                                     }
                                 }
                                 Err(_) => {
                                     sender.send(ApiResponse::LoginFailed {
                                         player_index: player_index,
                                         error_message: "[Server] Can't parse response".to_owned(),
+                                        send_to_all: false,
                                     })?;
                                 }
                             };
@@ -1813,6 +1798,7 @@ impl HQMRanked {
                             sender.send(ApiResponse::LoginFailed {
                                 player_index: player_index,
                                 error_message: "[Server] Can't connect to host".to_owned(),
+                                send_to_all: false,
                             })?;
                         }
                     }
@@ -2736,13 +2722,6 @@ impl HQMRanked {
                 self.delay_timer = self.config.delay * 100;
             }
         } else if let State::Game { paused } = self.status {
-            if server.game.time % 1000 == 0 && !paused {
-                if let Some(puck) = server.game.world.objects.get_puck(HQMObjectIndex(0)) {
-                    self.rhqm_game.xpoints.push(puck.body.pos.x);
-                    self.rhqm_game.zpoints.push(puck.body.pos.z);
-                }
-            }
-
             if server.game.game_over {
                 if !self.rhqm_game.data_saved {
                     self.rhqm_game.data_saved = true;
@@ -2760,8 +2739,6 @@ impl HQMRanked {
                 self.make_default_pick(server);
             }
         }
-
-        self.rhqm_game.notify_timer += 1;
     }
 }
 
