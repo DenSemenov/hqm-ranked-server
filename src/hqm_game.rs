@@ -150,6 +150,8 @@ pub struct HQMGame {
 
     pub vote: Vote,
     pub vote_timer: u32,
+
+    pub pause_timer: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +207,8 @@ impl HQMGame {
 
             vote: Vote::None,
             vote_timer: 0,
+
+            pause_timer: 0,
         }
     }
 }

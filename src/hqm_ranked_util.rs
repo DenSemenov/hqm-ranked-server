@@ -159,6 +159,9 @@ pub enum Vote {
     Reset {
         player_indexes: Vec<HQMServerPlayerIndex>,
     },
+    Pause {
+        player_indexes: Vec<HQMServerPlayerIndex>,
+    },
     None,
 }
 
@@ -1238,6 +1241,21 @@ impl HQMRanked {
             }
         }
 
+        if server.game.pause_timer != 0 {
+            server.game.pause_timer -= 0;
+
+            if server.game.pause_timer == 300 {
+                server
+                    .messages
+                    .add_server_chat_message_str("[Server] Game will resume in 3 seconds");
+            }
+
+            if server.game.pause_timer == 0 {
+                self.paused = true;
+                self.do_faceoff(server);
+            }
+        }
+
         match_events
     }
 
@@ -2188,6 +2206,14 @@ impl HQMRanked {
         });
     }
 
+    pub fn voted_pause(&mut self, server: &mut HQMServer) {
+        server.game.pause_timer = 6000;
+        self.paused = true;
+
+        let msg = format!("Game paused by vote for 1 minute");
+        server.messages.add_server_chat_message(msg);
+    }
+
     pub fn kick_by_vote(
         &mut self,
         server: &mut HQMServer,
@@ -2407,6 +2433,60 @@ impl HQMRanked {
         //todo
     }
 
+    pub fn vote_pause(&mut self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
+        if let Some(player) = self.rhqm_game.get_player_by_index(player_index) {
+            let name = player.player_name.clone();
+
+            let current_vote = server.game.vote.clone();
+            if let Vote::Reset { mut player_indexes } = current_vote {
+                if player_indexes.iter().any(|&i| i == player_index) {
+                    let msg = format!("[Server] You can vote once");
+                    server
+                        .messages
+                        .add_directed_server_chat_message(msg, player_index);
+                } else {
+                    player_indexes.push(player_index);
+                    let count = player_indexes.len();
+                    server.game.vote = Vote::Pause {
+                        player_indexes: player_indexes,
+                    };
+
+                    let msg = format!(
+                        "[Server] {} voted for pause {}/{}",
+                        name,
+                        count,
+                        self.config.team_max * 2 - 2
+                    );
+                    server.messages.add_server_chat_message(msg);
+
+                    if count == self.config.team_max * 2 - 2 {
+                        self.voted_pause(server);
+                        server.game.vote = Vote::None;
+                        server.game.vote_timer = 0;
+                    }
+                }
+            } else if let Vote::None {} = server.game.vote {
+                server.game.vote = Vote::Pause {
+                    player_indexes: [player_index].to_vec(),
+                };
+                server.game.vote_timer = 2000;
+
+                let msg = format!(
+                    "[Server] {} voted for pause {}/{}",
+                    name,
+                    1,
+                    self.config.team_max * 2 - 2
+                );
+                server.messages.add_server_chat_message(msg);
+            } else {
+                let msg = format!("[Server] Another vote started");
+                server
+                    .messages
+                    .add_directed_server_chat_message(msg, player_index);
+            }
+        }
+    }
+
     pub fn send_help(&self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
         server
             .messages
@@ -2420,6 +2500,10 @@ impl HQMRanked {
         );
         server.messages.add_directed_server_chat_message_str(
             "/votekick # or /vk # - vote to kick player",
+            player_index,
+        );
+        server.messages.add_directed_server_chat_message_str(
+            "/votepause # or /vp # - vote to pause",
             player_index,
         );
     }
