@@ -2438,7 +2438,7 @@ impl HQMRanked {
             let name = player.player_name.clone();
 
             let current_vote = server.game.vote.clone();
-            if let Vote::Reset { mut player_indexes } = current_vote {
+            if let Vote::Pause { mut player_indexes } = current_vote {
                 if player_indexes.iter().any(|&i| i == player_index) {
                     let msg = format!("[Server] You can vote once");
                     server
