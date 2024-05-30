@@ -1242,12 +1242,13 @@ impl HQMRanked {
         }
 
         if server.game.pause_timer != 0 {
-            server.game.pause_timer -= 0;
-
-            if server.game.pause_timer == 300 {
+            server.game.pause_timer -= 1;
+            let msg = format!("[Server] Paused {}", server.game.pause_timer);
+            server.messages.add_server_chat_message(msg);
+            if server.game.pause_timer == 500 {
                 server
                     .messages
-                    .add_server_chat_message_str("[Server] Game will resume in 3 seconds");
+                    .add_server_chat_message_str("[Server] Game will resume in 5 seconds");
             }
 
             if server.game.pause_timer == 0 {
