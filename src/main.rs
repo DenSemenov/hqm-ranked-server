@@ -327,6 +327,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     x.parse::<bool>().unwrap()
                 });
 
+                let shootouts = get_optional(game_section, "shootouts", false, |x| {
+                    x.parse::<bool>().unwrap()
+                });
+
                 let match_config = HQMRankedConfiguration {
                     time_period: rules_time_period,
                     time_warmup: rules_time_warmup,
@@ -352,6 +356,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     token,
                     delay,
                     faceoff_shift,
+                    shootouts,
                 };
 
                 let _ = hqm_server::run_server(

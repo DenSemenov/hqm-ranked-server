@@ -14,6 +14,7 @@ use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::PI;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct APILoginResponse {
@@ -129,7 +130,7 @@ pub struct RHQMQueuePlayer {
     pub afk: bool,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub enum State {
     Waiting {
         waiting_for_response: bool,
@@ -141,6 +142,11 @@ pub enum State {
     },
     Game {
         paused: bool,
+    },
+    Shootout {
+        time_left: u32,
+        current_team: HQMTeam,
+        attempt: usize,
     },
 }
 #[derive(Clone)]
@@ -231,6 +237,12 @@ pub struct RHQMGame {
     pub(crate) red_goalie: RHQMGameGoalie,
     pub(crate) blue_goalie: RHQMGameGoalie,
 
+    pub(crate) red_shootouts_goalie: Option<i32>,
+    pub(crate) blue_shootouts_goalie: Option<i32>,
+
+    pub(crate) red_attempts: Vec<bool>,
+    pub(crate) blue_attempts: Vec<bool>,
+
     pub(crate) pick_number: usize,
 }
 
@@ -285,7 +297,13 @@ impl RHQMGame {
             red_goalie: RHQMGameGoalie::Undefined,
             blue_goalie: RHQMGameGoalie::Undefined,
 
+            red_shootouts_goalie: None,
+            blue_shootouts_goalie: None,
+
             pick_number: 0,
+
+            red_attempts: Vec::new(),
+            blue_attempts: Vec::new(),
         }
     }
 }
@@ -325,6 +343,7 @@ pub struct HQMRankedConfiguration {
 
     pub delay: u32,
     pub faceoff_shift: bool,
+    pub shootouts: bool,
 }
 
 pub enum HQMRankedEvent {
@@ -489,21 +508,23 @@ impl HQMRanked {
         let red_score = server.game.red_score;
         let blue_score = server.game.blue_score;
         let old_game_over = server.game.game_over;
-        server.game.game_over =
-            if server.game.period > self.config.periods && red_score != blue_score {
-                true
-            } else if self.config.mercy > 0
-                && (red_score.saturating_sub(blue_score) >= self.config.mercy
-                    || blue_score.saturating_sub(red_score) >= self.config.mercy)
-            {
-                true
-            } else if self.config.first_to > 0
-                && (red_score >= self.config.first_to || blue_score >= self.config.first_to)
-            {
-                true
-            } else {
-                false
-            };
+        server.game.game_over = if server.game.period > self.config.periods
+            && red_score != blue_score
+            && !self.config.shootouts
+        {
+            true
+        } else if self.config.mercy > 0
+            && (red_score.saturating_sub(blue_score) >= self.config.mercy
+                || blue_score.saturating_sub(red_score) >= self.config.mercy)
+        {
+            true
+        } else if self.config.first_to > 0
+            && (red_score >= self.config.first_to || blue_score >= self.config.first_to)
+        {
+            true
+        } else {
+            false
+        };
         if server.game.game_over && !old_game_over {
             self.pause_timer = self.pause_timer.max(time_gameover);
         } else if !server.game.game_over && old_game_over {
@@ -1162,8 +1183,8 @@ impl HQMRanked {
                     state: state,
                 };
 
-                let _response: reqwest::Response =
-                    client.post(url).json(&request).send().await.unwrap();
+                // let _response: reqwest::Response =
+                //     client.post(url).json(&request).send().await.unwrap();
 
                 Ok::<_, anyhow::Error>(())
             });
@@ -1250,46 +1271,321 @@ impl HQMRanked {
             }
 
             if server.game.pause_timer == 0 {
-                self.paused = true;
+                self.paused = false;
                 self.do_faceoff(server);
+            }
+        }
+
+        if server.game.time == 0 && server.game.period == 4 && self.config.shootouts {
+            if self.pause_timer == 2000 {
+                self.status = State::Shootout {
+                    time_left: 1500,
+                    current_team: HQMTeam::Red,
+                    attempt: 1,
+                };
+                server.messages.add_server_chat_message_str(
+                    "[Server] Shootouts will start in 20 seconds, 15s to pick gk",
+                );
+
+                self.force_players_off_ice_by_system(server);
+                self.send_shootout_picks(server);
             }
         }
 
         match_events
     }
 
+    fn send_shootout_picks(&mut self, server: &mut HQMServer) {
+        let red_cap = self
+            .rhqm_game
+            .red_captain
+            .clone()
+            .and_then(|current_captain| self.rhqm_game.get_player_by_id(current_captain))
+            .expect("captain value is invalid");
+        let blue_cap = self
+            .rhqm_game
+            .blue_captain
+            .clone()
+            .and_then(|current_captain| self.rhqm_game.get_player_by_id(current_captain))
+            .expect("captain value is invalid");
+
+        let mut red_options = vec![];
+        for (player, c) in self
+            .rhqm_game
+            .game_players
+            .iter()
+            .filter(|p| p.player_team == Some(HQMTeam::Red))
+            .zip("ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars())
+        {
+            red_options.push((
+                c.to_string(),
+                player.player_name.clone(),
+                player.player_id,
+                player.rating,
+            ));
+        }
+        let mut red_msgs = SmallVec::<[_; 16]>::new();
+        red_msgs.push(format!("[Server] Pick GK for shootouts"));
+        let iter = red_options.iter().chunks(3);
+        for row in &iter {
+            let s = row
+                .map(|(code, name, _, rating)| format!("{}: {} ({})", code, limit(name), rating))
+                .join(", ");
+            red_msgs.push(s);
+        }
+        if let Some(red_captain_index) = red_cap.player_index {
+            for msg in red_msgs.iter() {
+                server
+                    .messages
+                    .add_directed_server_chat_message(msg.clone(), red_captain_index);
+            }
+        }
+
+        let mut blue_options = vec![];
+        for (player, c) in self
+            .rhqm_game
+            .game_players
+            .iter()
+            .filter(|p| p.player_team == Some(HQMTeam::Blue))
+            .zip("ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars())
+        {
+            blue_options.push((
+                c.to_string(),
+                player.player_name.clone(),
+                player.player_id,
+                player.rating,
+            ));
+        }
+        let mut blue_msgs = SmallVec::<[_; 16]>::new();
+        blue_msgs.push(format!("[Server] Pick GK for shootouts"));
+        let iter = blue_options.iter().chunks(3);
+        for row in &iter {
+            let s = row
+                .map(|(code, name, _, rating)| format!("{}: {} ({})", code, limit(name), rating))
+                .join(", ");
+            blue_msgs.push(s);
+        }
+        if let Some(blue_captain_index) = blue_cap.player_index {
+            for msg in blue_msgs.iter() {
+                server
+                    .messages
+                    .add_directed_server_chat_message(msg.clone(), blue_captain_index);
+            }
+        }
+    }
+
     fn update_clock(&mut self, server: &mut HQMServer) {
         let period_length = self.config.time_period * 100;
         let intermission_time = self.config.time_intermission * 100;
 
-        if !self.paused {
-            if self.pause_timer > 0 {
-                self.pause_timer -= 1;
-                if self.pause_timer == 0 {
-                    self.is_pause_goal = false;
-                    if server.game.game_over {
-                        server.new_game(self.create_game());
-                    } else {
-                        if server.game.time == 0 {
-                            server.game.time = period_length;
-                        }
+        if let State::Shootout {
+            time_left: _,
+            mut current_team,
+            mut attempt,
+        } = self.status
+        {
+            if !self.paused {
+                if self.pause_timer > 0 {
+                    self.pause_timer -= 1;
+                    if self.pause_timer == 0 {
+                        self.is_pause_goal = false;
+                        if server.game.game_over {
+                            server.new_game(self.create_game());
+                        } else {
+                            if server.game.time == 0 {
+                                server.game.time = period_length;
+                            }
 
-                        self.do_faceoff(server);
+                            self.do_faceoff(server);
+                        }
+                    }
+                } else {
+                    server.game.time = server.game.time.saturating_sub(1);
+                    if server.game.time == 0 {
+                        server.game.period += 1;
+                        self.pause_timer = intermission_time;
+                        self.is_pause_goal = false;
+                        self.step_where_period_ended = server.game.game_step;
+                        self.too_late_printed_this_period = false;
+                        self.next_faceoff_spot = HQMRinkFaceoffSpot::Center;
+                        self.update_game_over(server);
                     }
                 }
-            } else {
-                server.game.time = server.game.time.saturating_sub(1);
-                if server.game.time == 0 {
-                    server.game.period += 1;
-                    self.pause_timer = intermission_time;
-                    self.is_pause_goal = false;
-                    self.step_where_period_ended = server.game.game_step;
-                    self.too_late_printed_this_period = false;
-                    self.next_faceoff_spot = HQMRinkFaceoffSpot::Center;
-                    self.update_game_over(server);
+            }
+            if !self.paused {
+                if self.pause_timer > 0 {
+                    self.pause_timer -= 1;
+                    if self.pause_timer == 0 {
+                        self.is_pause_goal = false;
+                        if server.game.game_over {
+                            server.new_game(self.create_game());
+                        } else {
+                            if server.game.time == 0 {
+                                server.game.time = period_length;
+                            }
+
+                            self.do_faceoff(server);
+
+                            let middle = server.game.world.rink.length / 2.0;
+
+                            server.game.time = 1500;
+
+                            let fixed_attempt = attempt % (server.config.player_max - 1);
+
+                            let width = server.game.world.rink.width.clone();
+                            let length = server.game.world.rink.length.clone();
+
+                            let red_rot = Rotation3::from_euler_angles(0.0, 0.0, 0.0);
+                            let blue_rot = Rotation3::from_euler_angles(0.0, PI, 0.0);
+                            let red_goalie_pos = Point3::new(width / 2.0, 1.5, length - 5.0);
+                            let blue_goalie_pos = Point3::new(width / 2.0, 1.5, 5.0);
+                            let red_fwd_pos = Point3::new(width / 2.0, 1.5, middle + 3.0);
+                            let blue_fwd_pos = Point3::new(width / 2.0, 1.5, middle - 3.0);
+
+                            if current_team == HQMTeam::Red {
+                                let blue_gk = self
+                                    .rhqm_game
+                                    .blue_shootouts_goalie
+                                    .clone()
+                                    .and_then(|current| self.rhqm_game.get_player_by_id(current))
+                                    .expect("captain value is invalid");
+                                if let Some(p_index) = blue_gk.player_index {
+                                    server.spawn_skater(
+                                        p_index,
+                                        HQMTeam::Blue,
+                                        blue_goalie_pos,
+                                        blue_rot,
+                                    );
+                                }
+
+                                let red_players = self
+                                    .rhqm_game
+                                    .game_players
+                                    .iter()
+                                    .filter(|x| {
+                                        x.player_team == Some(HQMTeam::Red)
+                                            && x.player_id != blue_gk.player_id
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                let red_fwd = red_players[fixed_attempt - 1];
+                                if let Some(p_index) = red_fwd.player_index {
+                                    server.spawn_skater(
+                                        p_index,
+                                        HQMTeam::Red,
+                                        red_fwd_pos,
+                                        red_rot,
+                                    );
+                                }
+                            }
+
+                            if current_team == HQMTeam::Blue {
+                                let red_gk = self
+                                    .rhqm_game
+                                    .red_shootouts_goalie
+                                    .clone()
+                                    .and_then(|current| self.rhqm_game.get_player_by_id(current))
+                                    .expect("captain value is invalid");
+                                if let Some(p_index) = red_gk.player_index {
+                                    server.spawn_skater(
+                                        p_index,
+                                        HQMTeam::Red,
+                                        red_goalie_pos,
+                                        red_rot,
+                                    );
+                                }
+
+                                let blue_players = self
+                                    .rhqm_game
+                                    .game_players
+                                    .iter()
+                                    .filter(|x| {
+                                        x.player_team == Some(HQMTeam::Blue)
+                                            && x.player_id != red_gk.player_id
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                let blue_fwd = blue_players[fixed_attempt - 1];
+                                if let Some(p_index) = blue_fwd.player_index {
+                                    server.spawn_skater(
+                                        p_index,
+                                        HQMTeam::Blue,
+                                        blue_fwd_pos,
+                                        blue_rot,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    server.game.time = server.game.time.saturating_sub(1);
+                    if server.game.time == 0 {
+                        if current_team == HQMTeam::Red {
+                            self.rhqm_game.red_attempts.push(false);
+                            current_team = HQMTeam::Blue;
+                        } else if current_team == HQMTeam::Blue {
+                            self.rhqm_game.blue_attempts.push(false);
+                            current_team = HQMTeam::Red;
+                            attempt = attempt + 1;
+                        }
+
+                        let mut r_msg = format!("R: ");
+                        let mut b_msg = format!("B: ");
+
+                        self.rhqm_game.red_attempts.iter().for_each(|x| {
+                            if x == &true {
+                                r_msg = format!("{} {}", r_msg, "|+|")
+                            } else {
+                                r_msg = format!("{} {}", r_msg, "|-|")
+                            }
+                        });
+
+                        self.rhqm_game.blue_attempts.iter().for_each(|x| {
+                            if x == &true {
+                                b_msg = format!("{} {}", b_msg, "|+|")
+                            } else {
+                                b_msg = format!("{} {}", b_msg, "|-|")
+                            }
+                        });
+
+                        server.messages.add_server_chat_message(r_msg.clone());
+                        server.messages.add_server_chat_message(b_msg.clone());
+
+                        server.game.period += 1;
+                    }
+                }
+            }
+        } else {
+            if !self.paused {
+                if self.pause_timer > 0 {
+                    self.pause_timer -= 1;
+                    if self.pause_timer == 0 {
+                        self.is_pause_goal = false;
+                        if server.game.game_over {
+                            server.new_game(self.create_game());
+                        } else {
+                            if server.game.time == 0 {
+                                server.game.time = period_length;
+                            }
+
+                            self.do_faceoff(server);
+                        }
+                    }
+                } else {
+                    server.game.time = server.game.time.saturating_sub(1);
+                    if server.game.time == 0 {
+                        server.game.period += 1;
+                        self.pause_timer = intermission_time;
+                        self.is_pause_goal = false;
+                        self.step_where_period_ended = server.game.game_step;
+                        self.too_late_printed_this_period = false;
+                        self.next_faceoff_spot = HQMRinkFaceoffSpot::Center;
+                        self.update_game_over(server);
+                    }
                 }
             }
         }
+
         server.game.goal_message_timer = if self.is_pause_goal {
             self.pause_timer
         } else {
@@ -1923,6 +2219,89 @@ impl HQMRanked {
                 } else {
                     server.messages.add_directed_server_chat_message_str(
                         "[Server] You're not a captain",
+                        sending_player,
+                    );
+                }
+            }
+        }
+
+        if let State::Shootout {
+            time_left: _,
+            current_team: _,
+            attempt: _,
+        } = self.status
+        {
+            let red_cap = self
+                .rhqm_game
+                .red_captain
+                .clone()
+                .and_then(|current_captain| self.rhqm_game.get_player_by_id(current_captain))
+                .expect("captain value is invalid");
+            let blue_cap = self
+                .rhqm_game
+                .blue_captain
+                .clone()
+                .and_then(|current_captain| self.rhqm_game.get_player_by_id(current_captain))
+                .expect("captain value is invalid");
+            if red_cap.player_index == Some(sending_player) {
+                let mut red_options = vec![];
+                for (player, c) in self
+                    .rhqm_game
+                    .game_players
+                    .iter()
+                    .filter(|p| p.player_team == Some(HQMTeam::Red))
+                    .zip("ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars())
+                {
+                    red_options.push((
+                        c.to_string(),
+                        player.player_name.clone(),
+                        player.player_id,
+                        player.rating,
+                    ));
+                }
+                let p = red_options
+                    .iter()
+                    .find(|(a, _, _, _)| a.eq_ignore_ascii_case(arg))
+                    .cloned();
+                if let Some((_, player_name, player_id, _)) = p {
+                    self.rhqm_game.red_shootouts_goalie = Some(player_id);
+
+                    let msg = format!("[Server] {} has been picked for red GK", player_name);
+                    server.messages.add_server_chat_message(msg);
+                } else {
+                    server.messages.add_directed_server_chat_message_str(
+                        "[Server] Invalid pick",
+                        sending_player,
+                    );
+                }
+            } else if blue_cap.player_index == Some(sending_player) {
+                let mut blue_options = vec![];
+                for (player, c) in self
+                    .rhqm_game
+                    .game_players
+                    .iter()
+                    .filter(|p| p.player_team == Some(HQMTeam::Blue))
+                    .zip("ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars())
+                {
+                    blue_options.push((
+                        c.to_string(),
+                        player.player_name.clone(),
+                        player.player_id,
+                        player.rating,
+                    ));
+                }
+                let p = blue_options
+                    .iter()
+                    .find(|(a, _, _, _)| a.eq_ignore_ascii_case(arg))
+                    .cloned();
+                if let Some((_, player_name, player_id, _)) = p {
+                    self.rhqm_game.blue_shootouts_goalie = Some(player_id);
+
+                    let msg = format!("[Server] {} has been picked for blue GK", player_name);
+                    server.messages.add_server_chat_message(msg);
+                } else {
+                    server.messages.add_directed_server_chat_message_str(
+                        "[Server] Invalid pick",
                         sending_player,
                     );
                 }
@@ -2820,6 +3199,54 @@ impl HQMRanked {
             *time_left -= 1;
             if *time_left == 0 {
                 self.make_default_pick(server);
+            }
+        } else if let State::Shootout {
+            ref mut time_left,
+            current_team: _,
+            attempt: _,
+        } = self.status
+        {
+            if *time_left > 0 {
+                *time_left -= 1;
+            }
+            if *time_left == 0 {
+                if self.rhqm_game.red_shootouts_goalie == None {
+                    let best_remaining = self
+                        .rhqm_game
+                        .game_players
+                        .iter_mut()
+                        .filter(|p| p.player_team == Some(HQMTeam::Red))
+                        .max_by_key(|x| x.rating)
+                        .unwrap();
+                    let player_id = best_remaining.player_id;
+                    self.rhqm_game.red_shootouts_goalie = Some(player_id);
+
+                    let player_name = best_remaining.player_name.clone();
+                    let msg = format!(
+                        "[Server] Time ran out, {} has been picked for red GK",
+                        player_name
+                    );
+                    server.messages.add_server_chat_message(msg);
+                }
+
+                if self.rhqm_game.blue_shootouts_goalie == None {
+                    let best_remaining = self
+                        .rhqm_game
+                        .game_players
+                        .iter_mut()
+                        .filter(|p| p.player_team == Some(HQMTeam::Blue))
+                        .max_by_key(|x| x.rating)
+                        .unwrap();
+                    let player_id = best_remaining.player_id;
+                    self.rhqm_game.blue_shootouts_goalie = Some(player_id);
+
+                    let player_name = best_remaining.player_name.clone();
+                    let msg = format!(
+                        "[Server] Time ran out, {} has been picked for blue GK",
+                        player_name
+                    );
+                    server.messages.add_server_chat_message(msg);
+                }
             }
         }
     }
