@@ -294,12 +294,17 @@ impl HQMServerBehaviour for HQMRankedBehaviour {
                 self.m.send_available_picks_command(server, player_index);
             }
             "report" => {
-                if let Ok(reported_player_index) = arg.parse::<HQMServerPlayerIndex>() {
-                    self.m.report(server, player_index, reported_player_index);
+                let args = arg.split(" ").collect::<Vec<&str>>();
+                if let Ok(reported_player_index) = args[0].parse::<HQMServerPlayerIndex>() {
+                    self.m
+                        .report(server, player_index, reported_player_index, args[1]);
                 }
             }
             "help" => {
                 self.m.send_help(server, player_index);
+            }
+            "reasons" => {
+                self.m.send_reasons(server, player_index);
             }
             "rs" | "resign" => {
                 self.m.resign(server, player_index);
