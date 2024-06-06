@@ -1704,74 +1704,6 @@ impl HQMRanked {
         }
     }
 
-    pub fn report(
-        &mut self,
-        server: &mut HQMServer,
-        player_index: HQMServerPlayerIndex,
-        reported_player_index: HQMServerPlayerIndex,
-        reason: &str,
-    ) {
-        if let Some(reported_from) = self.rhqm_game.get_player_by_index(player_index) {
-            let reported_from_rhqm_id = reported_from.player_id.clone();
-
-            if let Some(reported_to) = self.rhqm_game.get_player_by_index(reported_player_index) {
-                let reported_to_rhqm_id = reported_to.player_id.clone();
-
-                let sender = self.sender.clone();
-                let api = self.config.api.clone();
-                let token = self.config.token.clone();
-                let client = server.reqwest_client.clone();
-
-                if reason == "" {
-                    server.messages.add_directed_server_chat_message_str(
-                        "[Server] Please specify the reason (/reasons)",
-                        player_index,
-                    );
-                } else {
-                    let reason_index = reason.parse::<u32>().ok();
-
-                    tokio::spawn(async move {
-                        let url = format!("{}/api/Server/Report", api);
-
-                        let request = ReportRequest {
-                            token: token,
-                            fromId: reported_from_rhqm_id,
-                            toId: reported_to_rhqm_id,
-                            reasonId: reason_index.expect("expect"),
-                        };
-
-                        let response: reqwest::Response =
-                            client.post(url).json(&request).send().await.unwrap();
-
-                        match response.status() {
-                            reqwest::StatusCode::OK => {
-                                match response.json::<ReportResponse>().await {
-                                    Ok(parsed) => {
-                                        sender.send(ApiResponse::Report {
-                                            message: parsed.message,
-                                            success: parsed.success,
-                                            player_index: player_index,
-                                        })?;
-                                    }
-                                    Err(_) => sender.send(ApiResponse::Error {
-                                        error_message: "[Server] Can't parse response".to_owned(),
-                                    })?,
-                                };
-                            }
-                            _ => {
-                                sender.send(ApiResponse::Error {
-                                    error_message: "[Server] Can't connect to host".to_owned(),
-                                })?;
-                            }
-                        }
-
-                        Ok::<_, anyhow::Error>(())
-                    });
-                }
-            }
-        }
-    }
-
     pub fn login(
         &mut self,
         server: &mut HQMServer,
@@ -2520,13 +2452,6 @@ impl HQMRanked {
     }
 
     pub fn send_help(&self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
-        server.messages.add_directed_server_chat_message_str(
-            "/report <index> <reason> - report player",
-            player_index,
-        );
-        server
-            .messages
-            .add_directed_server_chat_message_str("/reasons - get report reasons", player_index);
         server
             .messages
             .add_directed_server_chat_message_str("/resign or /rs - vote to resign", player_index);

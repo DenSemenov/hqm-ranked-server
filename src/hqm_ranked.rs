@@ -293,13 +293,6 @@ impl HQMServerBehaviour for HQMRankedBehaviour {
             "lp" | "listpicks" => {
                 self.m.send_available_picks_command(server, player_index);
             }
-            "report" => {
-                let args = arg.split(" ").collect::<Vec<&str>>();
-                if let Ok(reported_player_index) = args[0].parse::<HQMServerPlayerIndex>() {
-                    self.m
-                        .report(server, player_index, reported_player_index, args[1]);
-                }
-            }
             "help" => {
                 self.m.send_help(server, player_index);
             }
