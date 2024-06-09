@@ -71,6 +71,8 @@ pub struct CallGoalRequest {
 pub struct SaveGameRequest {
     pub token: String,
     pub gameId: String,
+    pub redScore: u32,
+    pub blueScore: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -2709,6 +2711,8 @@ impl HQMRanked {
         let api = self.config.api.clone();
         let token = self.config.token.clone();
         let game_id = server.game.game_id.clone();
+        let red_score = server.game.red_score.clone();
+        let blue_score = server.game.blue_score.clone();
         let client = server.reqwest_client.clone();
         let sender = self.sender.clone();
         tokio::spawn(async move {
@@ -2717,6 +2721,8 @@ impl HQMRanked {
             let request = SaveGameRequest {
                 token: token,
                 gameId: game_id,
+                redScore: red_score,
+                blueScore: blue_score,
             };
 
             let response: reqwest::Response = client.post(url).json(&request).send().await.unwrap();
