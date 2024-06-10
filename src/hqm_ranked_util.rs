@@ -1264,8 +1264,6 @@ impl HQMRanked {
             if server.game.pause_timer == 0 {
                 self.do_faceoff(server);
                 self.paused = false;
-                server.game.pause_timer = 0;
-                self.pause_timer = 0;
             }
         }
 
