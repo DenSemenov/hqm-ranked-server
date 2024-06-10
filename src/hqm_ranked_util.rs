@@ -40,6 +40,11 @@ pub struct APIGameStartResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct ReasonsResponse {
+    pub names: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GameStartRequest {
     pub token: String,
     pub maxCount: usize,
@@ -67,6 +72,8 @@ pub struct CallGoalRequest {
 pub struct SaveGameRequest {
     pub token: String,
     pub gameId: String,
+    pub redScore: u32,
+    pub blueScore: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -101,6 +108,7 @@ pub struct ReportRequest {
     pub token: String,
     pub fromId: i32,
     pub toId: i32,
+    pub reasonId: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -217,6 +225,10 @@ pub enum ApiResponse {
     Report {
         message: String,
         success: bool,
+        player_index: HQMServerPlayerIndex,
+    },
+    Reasons {
+        names: Vec<String>,
         player_index: HQMServerPlayerIndex,
     },
     Error {
@@ -1271,8 +1283,26 @@ impl HQMRanked {
             }
 
             if server.game.pause_timer == 0 {
-                self.paused = false;
                 self.do_faceoff(server);
+                self.paused = false;
+                server.game.pause_timer = 0;
+                self.pause_timer = 0;
+            }
+        }
+
+        if server.game.time == 0 && server.game.period == 4 && self.config.shootouts {
+            if self.pause_timer == 2000 {
+                self.status = State::Shootout {
+                    time_left: 1500,
+                    current_team: HQMTeam::Red,
+                    attempt: 1,
+                };
+                server.messages.add_server_chat_message_str(
+                    "[Server] Shootouts will start in 20 seconds, 15s to pick gk",
+                );
+
+                self.force_players_off_ice_by_system(server);
+                self.send_shootout_picks(server);
             }
         }
 
@@ -1849,6 +1879,17 @@ impl HQMRanked {
                             .add_directed_server_chat_message(player_msg, player_index);
                     }
                 }
+                ApiResponse::Reasons {
+                    names,
+                    player_index,
+                } => {
+                    for (pos, e) in names.iter().enumerate() {
+                        let player_msg = format!("{}. {}", pos, e);
+                        server
+                            .messages
+                            .add_directed_server_chat_message(player_msg, player_index);
+                    }
+                }
                 ApiResponse::Error { error_message } => {
                     server.messages.add_server_chat_message(error_message);
                 }
@@ -1975,62 +2016,6 @@ impl HQMRanked {
                 );
 
                 server.messages.add_server_chat_message(msg);
-            }
-        }
-    }
-
-    pub fn report(
-        &mut self,
-        server: &mut HQMServer,
-        player_index: HQMServerPlayerIndex,
-        reported_player_index: HQMServerPlayerIndex,
-    ) {
-        if let Some(reported_from) = self.rhqm_game.get_player_by_index(player_index) {
-            let reported_from_rhqm_id = reported_from.player_id.clone();
-
-            if let Some(reported_to) = self.rhqm_game.get_player_by_index(reported_player_index) {
-                let reported_to_rhqm_id = reported_to.player_id.clone();
-
-                let sender = self.sender.clone();
-                let api = self.config.api.clone();
-                let token = self.config.token.clone();
-                let client = server.reqwest_client.clone();
-                tokio::spawn(async move {
-                    let url = format!("{}/api/Server/Report", api);
-
-                    let request = ReportRequest {
-                        token: token,
-                        fromId: reported_from_rhqm_id,
-                        toId: reported_to_rhqm_id,
-                    };
-
-                    let response: reqwest::Response =
-                        client.post(url).json(&request).send().await.unwrap();
-
-                    match response.status() {
-                        reqwest::StatusCode::OK => {
-                            match response.json::<ReportResponse>().await {
-                                Ok(parsed) => {
-                                    sender.send(ApiResponse::Report {
-                                        message: parsed.message,
-                                        success: parsed.success,
-                                        player_index: player_index,
-                                    })?;
-                                }
-                                Err(_) => sender.send(ApiResponse::Error {
-                                    error_message: "[Server] Can't parse response".to_owned(),
-                                })?,
-                            };
-                        }
-                        _ => {
-                            sender.send(ApiResponse::Error {
-                                error_message: "[Server] Can't connect to host".to_owned(),
-                            })?;
-                        }
-                    }
-
-                    Ok::<_, anyhow::Error>(())
-                });
             }
         }
     }
@@ -2868,9 +2853,6 @@ impl HQMRanked {
     pub fn send_help(&self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
         server
             .messages
-            .add_directed_server_chat_message_str("/report # - report player", player_index);
-        server
-            .messages
             .add_directed_server_chat_message_str("/resign or /rs - vote to resign", player_index);
         server.messages.add_directed_server_chat_message_str(
             "/votereset or /vr - vote to cancel game",
@@ -2884,6 +2866,41 @@ impl HQMRanked {
             "/votepause # or /vp # - vote to pause",
             player_index,
         );
+    }
+
+    pub fn send_reasons(&self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
+        let api = self.config.api.clone();
+        let client = server.reqwest_client.clone();
+        let sender = self.sender.clone();
+
+        tokio::spawn(async move {
+            let url = format!("{}/api/Server/GetReasons", api);
+
+            let response: reqwest::Response = client.post(url).send().await.unwrap();
+
+            match response.status() {
+                reqwest::StatusCode::OK => {
+                    match response.json::<Vec<String>>().await {
+                        Ok(parsed) => {
+                            sender.send(ApiResponse::Reasons {
+                                names: parsed,
+                                player_index: player_index,
+                            })?;
+                        }
+                        Err(_) => sender.send(ApiResponse::Error {
+                            error_message: "[Server] Can't parse response".to_owned(),
+                        })?,
+                    };
+                }
+                _ => {
+                    sender.send(ApiResponse::Error {
+                        error_message: "[Server] Can't connect to host".to_owned(),
+                    })?;
+                }
+            }
+
+            Ok::<_, anyhow::Error>(())
+        });
     }
 
     fn send_available_picks(&self, server: &mut HQMServer) {
@@ -3090,6 +3107,8 @@ impl HQMRanked {
         let api = self.config.api.clone();
         let token = self.config.token.clone();
         let game_id = server.game.game_id.clone();
+        let red_score = server.game.red_score.clone();
+        let blue_score = server.game.blue_score.clone();
         let client = server.reqwest_client.clone();
         let sender = self.sender.clone();
         tokio::spawn(async move {
@@ -3098,6 +3117,8 @@ impl HQMRanked {
             let request = SaveGameRequest {
                 token: token,
                 gameId: game_id,
+                redScore: red_score,
+                blueScore: blue_score,
             };
 
             let response: reqwest::Response = client.post(url).json(&request).send().await.unwrap();
