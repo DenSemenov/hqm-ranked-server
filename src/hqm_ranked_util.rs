@@ -1262,7 +1262,7 @@ impl HQMRanked {
             }
 
             if server.game.pause_timer == 0 {
-                self.do_faceoff(server);
+                self.pause_timer = 5 * 100;
                 self.paused = false;
             }
         }
