@@ -1304,6 +1304,8 @@ impl HQMRanked {
                 self.force_players_off_ice_by_system(server);
                 self.send_shootout_picks(server);
             }
+
+            if self.pause_timer == 500 {}
         }
 
         if server.game.time == 0 && server.game.period == 4 && self.config.shootouts {
@@ -1319,6 +1321,46 @@ impl HQMRanked {
 
                 self.force_players_off_ice_by_system(server);
                 self.send_shootout_picks(server);
+            }
+
+            if self.pause_timer == 500 {
+                if self.rhqm_game.red_shootouts_goalie == None {
+                    let best_remaining = self
+                        .rhqm_game
+                        .game_players
+                        .iter_mut()
+                        .filter(|p| p.player_team == Some(HQMTeam::Red))
+                        .max_by_key(|x| x.rating)
+                        .unwrap();
+                    let player_id = best_remaining.player_id;
+                    self.rhqm_game.red_shootouts_goalie = Some(player_id);
+
+                    let player_name = best_remaining.player_name.clone();
+                    let msg = format!(
+                        "[Server] Time ran out, {} has been picked for red GK",
+                        player_name
+                    );
+                    server.messages.add_server_chat_message(msg);
+                }
+
+                if self.rhqm_game.blue_shootouts_goalie == None {
+                    let best_remaining = self
+                        .rhqm_game
+                        .game_players
+                        .iter_mut()
+                        .filter(|p| p.player_team == Some(HQMTeam::Blue))
+                        .max_by_key(|x| x.rating)
+                        .unwrap();
+                    let player_id = best_remaining.player_id;
+                    self.rhqm_game.blue_shootouts_goalie = Some(player_id);
+
+                    let player_name = best_remaining.player_name.clone();
+                    let msg = format!(
+                        "[Server] Time ran out, {} has been picked for blue GK",
+                        player_name
+                    );
+                    server.messages.add_server_chat_message(msg);
+                }
             }
         }
 
@@ -1453,7 +1495,6 @@ impl HQMRanked {
                             if server.game.time == 0 {
                                 server.game.time = period_length;
                             }
-
                             self.do_faceoff(server);
 
                             let middle = server.game.world.rink.length / 2.0;
@@ -1564,17 +1605,17 @@ impl HQMRanked {
 
                         self.rhqm_game.red_attempts.iter().for_each(|x| {
                             if x == &true {
-                                r_msg = format!("{} {}", r_msg, "|+|")
+                                r_msg = format!("{} {}", r_msg, "+")
                             } else {
-                                r_msg = format!("{} {}", r_msg, "|-|")
+                                r_msg = format!("{} {}", r_msg, "-")
                             }
                         });
 
                         self.rhqm_game.blue_attempts.iter().for_each(|x| {
                             if x == &true {
-                                b_msg = format!("{} {}", b_msg, "|+|")
+                                b_msg = format!("{} {}", b_msg, "+")
                             } else {
-                                b_msg = format!("{} {}", b_msg, "|-|")
+                                b_msg = format!("{} {}", b_msg, "-")
                             }
                         });
 
@@ -3230,45 +3271,7 @@ impl HQMRanked {
             if *time_left > 0 {
                 *time_left -= 1;
             }
-            if *time_left == 0 {
-                if self.rhqm_game.red_shootouts_goalie == None {
-                    let best_remaining = self
-                        .rhqm_game
-                        .game_players
-                        .iter_mut()
-                        .filter(|p| p.player_team == Some(HQMTeam::Red))
-                        .max_by_key(|x| x.rating)
-                        .unwrap();
-                    let player_id = best_remaining.player_id;
-                    self.rhqm_game.red_shootouts_goalie = Some(player_id);
-
-                    let player_name = best_remaining.player_name.clone();
-                    let msg = format!(
-                        "[Server] Time ran out, {} has been picked for red GK",
-                        player_name
-                    );
-                    server.messages.add_server_chat_message(msg);
-                }
-
-                if self.rhqm_game.blue_shootouts_goalie == None {
-                    let best_remaining = self
-                        .rhqm_game
-                        .game_players
-                        .iter_mut()
-                        .filter(|p| p.player_team == Some(HQMTeam::Blue))
-                        .max_by_key(|x| x.rating)
-                        .unwrap();
-                    let player_id = best_remaining.player_id;
-                    self.rhqm_game.blue_shootouts_goalie = Some(player_id);
-
-                    let player_name = best_remaining.player_name.clone();
-                    let msg = format!(
-                        "[Server] Time ran out, {} has been picked for blue GK",
-                        player_name
-                    );
-                    server.messages.add_server_chat_message(msg);
-                }
-            }
+            if *time_left == 0 {}
         }
     }
 }
