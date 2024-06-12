@@ -1259,9 +1259,6 @@ impl HQMRanked {
                 server
                     .messages
                     .add_server_chat_message_str("[Server] Game will resume in 5 seconds");
-            }
-
-            if server.game.pause_timer == 0 {
                 self.pause_timer = 5 * 100;
                 self.paused = false;
             }
