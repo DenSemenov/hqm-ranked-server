@@ -5,6 +5,7 @@ extern crate ini;
 use ini::Ini;
 use std::env;
 use std::error::Error;
+use tracing::info;
 
 mod hqm_ranked;
 use crate::hqm_ranked::HQMRankedBehaviour;
@@ -13,7 +14,7 @@ use ini::Properties;
 use migo_hqm_server::hqm_game::HQMPhysicsConfiguration;
 use migo_hqm_server::hqm_ranked_util::{
     HQMIcingConfiguration, HQMOffsideConfiguration, HQMOffsideLineConfiguration,
-    HQMRankedConfiguration, HQMTwoLinePassConfiguration, RankedPickingMode,
+    HQMRankedConfiguration, HQMTwoLinePassConfiguration, RankedPickingMode, ServerType,
 };
 
 use migo_hqm_server::hqm_server;
@@ -327,6 +328,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     x.parse::<bool>().unwrap()
                 });
 
+                let server_type =
+                    get_optional(game_section, "type", ServerType::Ranked, |x| match x {
+                        "ranked" => ServerType::Ranked,
+                        "teams" => ServerType::Teams,
+                        _ => ServerType::Ranked,
+                    });
+
                 let match_config = HQMRankedConfiguration {
                     time_period: rules_time_period,
                     time_warmup: rules_time_warmup,
@@ -352,6 +360,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     token,
                     delay,
                     faceoff_shift,
+                    server_type,
                 };
 
                 let _ = hqm_server::run_server(

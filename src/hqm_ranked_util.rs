@@ -22,6 +22,7 @@ pub struct APILoginResponse {
     pub errorMessage: String,
     pub oldNickname: String,
     pub sendToAll: bool,
+    pub team: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -36,6 +37,7 @@ pub struct APIGameStartResponse {
     pub players: Vec<APIGameStartPlayerResponse>,
     pub captainRed: i32,
     pub captainBlue: i32,
+    pub title: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -135,6 +137,7 @@ pub struct RHQMQueuePlayer {
     pub player_name: String,
     pub player_index: HQMServerPlayerIndex,
     pub afk: bool,
+    pub team: HQMTeam,
 }
 
 #[derive(Eq, PartialEq, Debug)]
@@ -205,12 +208,14 @@ pub enum ApiResponse {
         player_id: i32,
         player_index: HQMServerPlayerIndex,
         old_nickname: String,
+        team: i32,
     },
     GameStarted {
         gameId: String,
         players: Vec<APIGameStartPlayerResponse>,
         captainRed: i32,
         captainBlue: i32,
+        title: String,
     },
     GameEnded {
         mvp: String,
@@ -308,6 +313,12 @@ pub enum RankedPickingMode {
     CaptainsPick,
 }
 
+#[derive(Eq, PartialEq, Debug, Copy, Clone)]
+pub enum ServerType {
+    Ranked,
+    Teams,
+}
+
 pub struct HQMRankedConfiguration {
     pub time_period: u32,
     pub time_warmup: u32,
@@ -337,6 +348,7 @@ pub struct HQMRankedConfiguration {
 
     pub delay: u32,
     pub faceoff_shift: bool,
+    pub server_type: ServerType,
 }
 
 pub enum HQMRankedEvent {
@@ -1469,14 +1481,21 @@ impl HQMRanked {
                     player_id,
                     player_index,
                     old_nickname,
+                    team,
                 } => {
-                    self.successful_login(server, player_index, player_id, old_nickname);
+                    let t = if team == 0 {
+                        HQMTeam::Red
+                    } else {
+                        HQMTeam::Blue
+                    };
+                    self.successful_login(server, player_index, player_id, old_nickname, t);
                 }
                 ApiResponse::GameStarted {
                     gameId,
                     players,
                     captainRed,
                     captainBlue,
+                    title,
                 } => {
                     server.game.game_id = gameId;
                     server.game_uuid = server.game.game_id.clone();
@@ -1495,11 +1514,17 @@ impl HQMRanked {
                     for p in players {
                         let queue_player = self.queued_players.iter().find(|q| q.player_id == p.id);
                         if let Some(queue_player) = queue_player {
+                            let mut team: Option<HQMTeam> = None;
+
+                            if self.config.server_type == ServerType::Teams {
+                                team = Some(queue_player.team);
+                            }
+
                             let rhqm_player = RHQMGamePlayer {
                                 player_id: p.id,
                                 player_name: queue_player.player_name.clone(),
                                 player_index: Some(queue_player.player_index),
-                                player_team: None,
+                                player_team: team,
                                 rating: p.score,
                             };
                             player_indices.push(queue_player.player_index);
@@ -1510,18 +1535,29 @@ impl HQMRanked {
                     }
 
                     if successful {
-                        self.paused = false;
-                        self.force_players_off_ice_by_system(server);
-                        server.game.time = 2000;
-                        self.rhqm_game.game_players = new_players;
-                        self.queued_players
-                            .retain(|x| !player_indices.contains(&x.player_index));
-                        self.status = State::CaptainsPicking {
-                            time_left: 2000,
-                            options: self.set_captains(server, captainRed, captainBlue),
-                            current_team: HQMTeam::Red,
-                        };
-                        self.send_available_picks(server);
+                        if self.config.server_type == ServerType::Ranked {
+                            self.paused = false;
+                            self.force_players_off_ice_by_system(server);
+                            server.game.time = 2000;
+                            self.rhqm_game.game_players = new_players;
+                            self.queued_players
+                                .retain(|x| !player_indices.contains(&x.player_index));
+                            self.status = State::CaptainsPicking {
+                                time_left: 2000,
+                                options: self.set_captains(server, captainRed, captainBlue),
+                                current_team: HQMTeam::Red,
+                            };
+                            self.send_available_picks(server);
+                        } else if self.config.server_type == ServerType::Teams {
+                            self.queued_players = vec![];
+                            if title.len() != 0 {
+                                let msg = format!("[Server] Game {} starting", title);
+                                server.messages.add_server_chat_message(msg);
+                            }
+                            self.paused = false;
+                            self.rhqm_game.game_players = new_players;
+                            self.start_captains_game(server);
+                        }
                     } else {
                         self.status = State::Waiting {
                             waiting_for_response: false,
@@ -1532,17 +1568,19 @@ impl HQMRanked {
                     let msg = format!("[Server] MVP: {}", mvp);
                     server.messages.add_server_chat_message(msg);
 
-                    for p in players {
-                        let rhqm_player = self.rhqm_game.get_player_by_id(p.id.clone());
-                        if let Some(rhqm_player) = rhqm_player {
-                            if let Some(p_index) = rhqm_player.player_index {
-                                let player_msg = format!(
-                                    "[Server] Rating: {} ({}) #{}",
-                                    p.total, p.score, p.pos
-                                );
-                                server
-                                    .messages
-                                    .add_directed_server_chat_message(player_msg, p_index);
+                    if self.config.server_type == ServerType::Ranked {
+                        for p in players {
+                            let rhqm_player = self.rhqm_game.get_player_by_id(p.id.clone());
+                            if let Some(rhqm_player) = rhqm_player {
+                                if let Some(p_index) = rhqm_player.player_index {
+                                    let player_msg = format!(
+                                        "[Server] Rating: {} ({}) #{}",
+                                        p.total, p.score, p.pos
+                                    );
+                                    server
+                                        .messages
+                                        .add_directed_server_chat_message(player_msg, p_index);
+                                }
                             }
                         }
                     }
@@ -1643,10 +1681,12 @@ impl HQMRanked {
         player_index: HQMServerPlayerIndex,
         player_id: i32,
         old_nickname: String,
+        team: HQMTeam,
     ) {
         if let Some(player) = server.players.get(player_index) {
             self.verified_players.insert(player_index, player_id);
             let rhqm_player = self.rhqm_game.get_player_by_id_mut(player_id.clone());
+
             let is_on_ice = player.object.is_some();
             let queued = self
                 .queued_players
@@ -1682,6 +1722,7 @@ impl HQMRanked {
                     player_index,
                     player_name: name.clone(),
                     afk: false,
+                    team: team,
                 };
                 self.queued_players.push(player_item);
 
@@ -1749,6 +1790,7 @@ impl HQMRanked {
                                             player_id: parsed.id,
                                             player_index: player_index,
                                             old_nickname: parsed.oldNickname,
+                                            team: parsed.team,
                                         })?;
                                     } else {
                                         if Some(parsed.id) == already_verified {
@@ -1756,6 +1798,7 @@ impl HQMRanked {
                                                 player_id: parsed.id,
                                                 player_index: player_index,
                                                 old_nickname: String::from(""),
+                                                team: parsed.team,
                                             })?;
                                         } else {
                                             sender.send(ApiResponse::LoginFailed {
@@ -1820,6 +1863,7 @@ impl HQMRanked {
                                 players: parsed.players,
                                 captainRed: parsed.captainRed,
                                 captainBlue: parsed.captainBlue,
+                                title: parsed.title,
                             })?;
                         }
                         Err(_) => sender.send(ApiResponse::Error {
@@ -2775,19 +2819,39 @@ impl HQMRanked {
             waiting_for_response,
         } = self.status
         {
-            let mut players_to_spawn = smallvec::SmallVec::<[HQMServerPlayerIndex; 16]>::new();
-            for queue_player in self.queued_players.iter() {
+            let mut players_to_spawn_red = smallvec::SmallVec::<[HQMServerPlayerIndex; 16]>::new();
+            for queue_player in self
+                .queued_players
+                .iter()
+                .filter(|x| x.team == HQMTeam::Red)
+            {
                 if let Some(player) = server.players.get(queue_player.player_index) {
                     if player.object.is_none() {
-                        players_to_spawn.push(queue_player.player_index);
+                        players_to_spawn_red.push(queue_player.player_index);
                     }
                 }
             }
-            let middle = server.game.world.rink.length / 2.0;
-            for (i, player_index) in players_to_spawn.into_iter().enumerate() {
-                let pos = Point3::new(0.5, 2.0, middle - 10.0 + 2.0 * (i as f32));
-                let rot = Rotation3::from_euler_angles(0.0, 3.0 * FRAC_PI_2, 0.0);
-                server.spawn_skater(player_index, HQMTeam::Red, pos, rot);
+            let mut players_to_spawn_blue = smallvec::SmallVec::<[HQMServerPlayerIndex; 16]>::new();
+            for queue_player in self
+                .queued_players
+                .iter()
+                .filter(|x| x.team == HQMTeam::Blue)
+            {
+                if let Some(player) = server.players.get(queue_player.player_index) {
+                    if player.object.is_none() {
+                        players_to_spawn_blue.push(queue_player.player_index);
+                    }
+                }
+            }
+            for (i, player_index) in players_to_spawn_red.into_iter().enumerate() {
+                server.spawn_skater_at_spawnpoint(player_index, HQMTeam::Red, HQMSpawnPoint::Bench);
+            }
+            for (i, player_index) in players_to_spawn_blue.into_iter().enumerate() {
+                server.spawn_skater_at_spawnpoint(
+                    player_index,
+                    HQMTeam::Blue,
+                    HQMSpawnPoint::Bench,
+                );
             }
             if !waiting_for_response && self.queued_players.len() >= self.config.team_max * 2 {
                 if self.delay_timer != 0 {
