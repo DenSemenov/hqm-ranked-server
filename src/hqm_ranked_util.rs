@@ -2440,6 +2440,21 @@ impl HQMRanked {
         //todo
     }
 
+    pub fn logged_in(&self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
+        let mut msgs = SmallVec::<[_; 16]>::new();
+        let iter = self.queued_players.iter().chunks(3);
+        for row in &iter {
+            let s = row.map(|p| format!("{}", p.player_name)).join(", ");
+            msgs.push(s);
+        }
+
+        for msg in msgs.iter() {
+            server
+                .messages
+                .add_directed_server_chat_message(msg.clone(), player_index);
+        }
+    }
+
     pub fn vote_pause(&mut self, server: &mut HQMServer, player_index: HQMServerPlayerIndex) {
         if let Some(player) = self.rhqm_game.get_player_by_index(player_index) {
             let name = player.player_name.clone();
@@ -2508,6 +2523,10 @@ impl HQMRanked {
         );
         server.messages.add_directed_server_chat_message_str(
             "/votepause # or /vp # - vote to pause",
+            player_index,
+        );
+        server.messages.add_directed_server_chat_message_str(
+            "/logged # or /li # - list of logged in players",
             player_index,
         );
     }

@@ -316,6 +316,9 @@ impl HQMServerBehaviour for HQMRankedBehaviour {
             "vp" | "votepause" => {
                 self.m.vote_pause(server, player_index);
             }
+            "li" | "logged" => {
+                self.m.logged_in(server, player_index);
+            }
             _ => {}
         };
     }
