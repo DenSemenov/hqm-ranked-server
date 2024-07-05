@@ -1045,7 +1045,7 @@ impl HQMServer {
                 );
 
                 let change1 = Rc::new(HQMMessage::PlayerUpdate {
-                    player_name: Rc::new(format!("[{}] {}", team, player.player_name)),
+                    player_name: Rc::new(format!("({}) {}", team, player.player_name)),
                     object: player.object,
                     player_index: sender_index,
                     in_server: true,
