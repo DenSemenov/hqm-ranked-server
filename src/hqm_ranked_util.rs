@@ -14,6 +14,8 @@ use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::f32::consts::FRAC_PI_2;
+use std::net::IpAddr;
+use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct APILoginResponse {
@@ -1766,6 +1768,14 @@ impl HQMRanked {
                 //login
                 let sender = self.sender.clone();
                 let username = (*player.player_name).clone();
+
+                let ip = match player.addr().unwrap().ip() {
+                    IpAddr::V4(ipv4) => format!("{}", ipv4),
+                    IpAddr::V6(ipv6) => format!("{}", ipv6),
+                };
+
+                info!(ip);
+
                 let pass = format!("{}", password_user);
                 let api = self.config.api.clone();
                 let token = self.config.token.clone();
@@ -1777,6 +1787,7 @@ impl HQMRanked {
                     map.insert("login", &username);
                     map.insert("password", &pass);
                     map.insert("serverToken", &token);
+                    map.insert("ip", &ip);
 
                     let response: reqwest::Response =
                         client.post(url).json(&map).send().await.unwrap();
