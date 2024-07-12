@@ -1044,21 +1044,11 @@ impl HQMServer {
                     &player.player_name, sender_index, team, message
                 );
 
-                let change1 = Rc::new(HQMMessage::PlayerUpdate {
-                    player_name: Rc::new(format!("({}) {}", team, player.player_name)),
-                    object: player.object,
-                    player_index: sender_index,
-                    in_server: true,
-                });
-                let change2 = Rc::new(HQMMessage::PlayerUpdate {
-                    player_name: player.player_name.clone(),
-                    object: player.object,
-                    player_index: sender_index,
-                    in_server: true,
-                });
+                let msg_team = format!("[{}] {}: {}", team, player.player_name, message);
+
                 let chat = Rc::new(HQMMessage::Chat {
-                    player_index: Some(sender_index),
-                    message: Cow::Owned(message.to_owned()),
+                    player_index: None,
+                    message: Cow::Owned(msg_team.to_owned()),
                 });
 
                 let mut matching_indices = smallvec::SmallVec::<[_; 32]>::new();
@@ -1073,9 +1063,7 @@ impl HQMServer {
                 }
                 for player_index in matching_indices {
                     if let Some(player) = self.players.get_mut(player_index) {
-                        player.add_message(change1.clone());
                         player.add_message(chat.clone());
-                        player.add_message(change2.clone());
                     }
                 }
             }
