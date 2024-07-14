@@ -2,7 +2,7 @@ use crate::hqm_game::{
     HQMGame, HQMGameWorld, HQMObjectIndex, HQMPhysicsConfiguration, HQMPuck, HQMRinkFaceoffSpot,
     HQMRinkLine, HQMRinkSide, HQMRulesState, HQMTeam,
 };
-use crate::hqm_server::HQMSpawnPoint;
+use crate::hqm_server::{HQMMuteStatus, HQMSpawnPoint};
 use crate::hqm_server::{HQMServer, HQMServerPlayer, HQMServerPlayerIndex, HQMServerPlayerList};
 use crate::hqm_simulate::HQMSimulationEvent;
 use itertools::Itertools;
@@ -1685,7 +1685,9 @@ impl HQMRanked {
         old_nickname: String,
         team: HQMTeam,
     ) {
-        if let Some(player) = server.players.get(player_index) {
+        if let Some(player) = server.players.get_mut(player_index) {
+            player.is_muted = HQMMuteStatus::NotMuted;
+
             self.verified_players.insert(player_index, player_id);
             let rhqm_player = self.rhqm_game.get_player_by_id_mut(player_id.clone());
 
@@ -1752,7 +1754,7 @@ impl HQMRanked {
         player_index: HQMServerPlayerIndex,
         password_user: &str,
     ) {
-        if let Some(player) = server.players.get(player_index) {
+        if let Some(player) = server.players.get_mut(player_index) {
             let name = player.player_name.to_string();
             let rhqm_player = self.rhqm_game.get_player_by_index(player_index);
             let is_on_ice = player.object.is_some();

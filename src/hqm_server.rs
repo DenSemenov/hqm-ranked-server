@@ -877,6 +877,12 @@ impl HQMServer {
                                     player_index,
                                 );
                             }
+                            HQMMuteStatus::NotLoggedIn => {
+                                self.messages.add_directed_server_chat_message(
+                                    format!("[Server] Log in to send chat message"),
+                                    player_index,
+                                );
+                            }
                             HQMMuteStatus::Muted => {}
                         },
                         _ => {
@@ -1896,6 +1902,7 @@ pub fn get_spawnpoint(
 pub enum HQMMuteStatus {
     NotMuted,
     ShadowMuted,
+    NotLoggedIn,
     Muted,
 }
 pub struct HQMNetworkPlayerData {
@@ -1957,7 +1964,7 @@ impl HQMServerPlayer {
             },
             is_admin: false,
             input: Default::default(),
-            is_muted: HQMMuteStatus::NotMuted,
+            is_muted: HQMMuteStatus::NotLoggedIn,
             hand: HQMSkaterHand::Right,
             mass: 1.0,
         }
