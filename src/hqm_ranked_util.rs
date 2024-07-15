@@ -1147,7 +1147,7 @@ impl HQMRanked {
     pub fn main_tick(&mut self, server: &mut HQMServer) {
         self.tick += 1;
 
-        if self.tick % 100 == 0 {
+        if self.tick % 500 == 0 {
             let api = self.config.api.clone();
             let token = self.config.token.clone();
             let server_name = self.config.server_name.clone();
