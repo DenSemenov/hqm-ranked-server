@@ -464,6 +464,19 @@ impl HQMServer {
             data.inactivity = 0;
             data.client_version = client_version;
             data.known_packet = new_known_packet;
+
+            if player.object.is_some() {
+                if player.input.fwbw == input.fwbw
+                    && player.input.turn == input.turn
+                    && player.input.stick_angle == input.stick_angle
+                {
+                    player.afk_time += 1;
+                } else {
+                    player.afk_time = 0;
+                }
+            } else {
+                player.afk_time = 0;
+            }
             player.input = input;
             data.game_id = current_game_id;
             data.known_msgpos = known_msgpos;
@@ -1933,6 +1946,7 @@ pub struct HQMServerPlayer {
     pub hand: HQMSkaterHand,
     pub mass: f32,
     pub input: HQMPlayerInput,
+    pub afk_time: u32,
 }
 
 impl HQMServerPlayer {
@@ -1967,6 +1981,7 @@ impl HQMServerPlayer {
             is_muted: HQMMuteStatus::NotLoggedIn,
             hand: HQMSkaterHand::Right,
             mass: 1.0,
+            afk_time: 0,
         }
     }
 

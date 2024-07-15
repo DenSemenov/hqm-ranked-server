@@ -335,6 +335,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         _ => ServerType::Ranked,
                     });
 
+                let afk_time = get_optional(game_section, "afk_time", 10000, |x| {
+                    x.parse::<u32>().unwrap()
+                });
+
                 let match_config = HQMRankedConfiguration {
                     time_period: rules_time_period,
                     time_warmup: rules_time_warmup,
@@ -361,6 +365,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     delay,
                     faceoff_shift,
                     server_type,
+                    afk_time,
                 };
 
                 let _ = hqm_server::run_server(

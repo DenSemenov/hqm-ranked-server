@@ -351,6 +351,7 @@ pub struct HQMRankedConfiguration {
     pub delay: u32,
     pub faceoff_shift: bool,
     pub server_type: ServerType,
+    pub afk_time: u32,
 }
 
 pub enum HQMRankedEvent {
@@ -1276,6 +1277,35 @@ impl HQMRanked {
                 self.pause_timer = 5 * 100;
                 self.paused = false;
             }
+        }
+        let mut indexes_to_spec = vec![];
+        for (player_index, player) in server.players.iter() {
+            if let Some(player) = player {
+                if player.afk_time == self.config.afk_time * 100 {
+                    let rhqm_player = self.rhqm_game.get_player_by_index(player_index);
+                    let queue_player = self
+                        .queued_players
+                        .iter()
+                        .find(|q| q.player_index == player_index);
+                    if rhqm_player.is_some() {
+                        indexes_to_spec.push(player_index);
+
+                        let msg = format!("[Server] {} logged out (AFK)", player.player_name);
+                        server.messages.add_server_chat_message(msg);
+                    } else if queue_player.is_some() {
+                        self.queued_players
+                            .retain(|x| x.player_index != player_index);
+                        indexes_to_spec.push(player_index);
+
+                        let msg = format!("[Server] {} logged out (AFK)", player.player_name);
+                        server.messages.add_server_chat_message(msg);
+                    }
+                }
+            }
+        }
+
+        for index in indexes_to_spec.iter() {
+            server.move_to_spectator(index.to_owned());
         }
 
         match_events
@@ -2889,8 +2919,8 @@ impl HQMRanked {
                 if self.delay_timer != 0 {
                     self.delay_timer -= 1;
                 } else {
-                    let slice = &self.queued_players[0..(self.config.team_max * 2)];
-                    let (players, ips, player_ids) = self.get_player_and_ips(server, slice);
+                    let (players, ips, player_ids) =
+                        self.get_player_and_ips(server, &self.queued_players);
 
                     self.status = State::Waiting {
                         waiting_for_response: true,
