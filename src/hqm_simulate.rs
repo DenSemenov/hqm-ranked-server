@@ -280,7 +280,7 @@ fn update_stick(
 
     let placement_diff = stick_input - &player.stick_placement;
     let placement_change = placement_diff.scale(0.0625) - player.stick_placement_delta.scale(0.5);
-    let placement_change = limit_vector_length2(&placement_change, 0.010);
+    // let placement_change = limit_vector_length2(&placement_change, 0.010);
     //let placement_change = limit_vector_length2(&placement_change, 0.0088888891);
 
     player.stick_placement_delta += placement_change;
@@ -1049,6 +1049,7 @@ fn collision_between_vertex_and_rink(
 fn apply_acceleration_to_object(body: &mut HQMBody, change: &Vector3<f32>, point: &Point3<f32>) {
     let diff1 = point - &body.pos;
     body.linear_velocity += change;
+    body.linear_velocity = limit_vector_length(&body.linear_velocity, 0.3);
     let cross = change.cross(&diff1);
     body.angular_velocity +=
         &body.rot * (body.rot.transpose() * cross).component_mul(&body.rot_mul);
