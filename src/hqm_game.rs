@@ -1,5 +1,5 @@
 use crate::hqm_parse;
-use crate::hqm_ranked_util::Vote;
+use crate::hqm_ranked_util::{LimitType, Vote};
 use nalgebra::{Matrix3, Point3, Rotation3, Vector2, Vector3};
 
 use std::fmt;
@@ -68,11 +68,12 @@ impl HQMGameWorld {
         rot: Rotation3<f32>,
         hand: HQMSkaterHand,
         mass: f32,
+        limit_type: LimitType
     ) -> Option<HQMObjectIndex> {
         let object_slot = self.find_empty_player_slot();
         if let Some(i) = object_slot {
             self.objects.objects[i.0] =
-                HQMGameObject::Player(HQMSkater::new(start, rot, hand, mass));
+                HQMGameObject::Player(HQMSkater::new(start, rot, hand, mass,limit_type));
         }
         return object_slot;
     }
@@ -715,6 +716,7 @@ pub struct HQMSkater {
     pub stick_placement_delta: Vector2<f32>, // Change in azimuth and inclination per hundred of a second
     pub collision_balls: Vec<HQMSkaterCollisionBall>,
     pub hand: HQMSkaterHand,
+    pub limit_type: LimitType,
 }
 
 impl HQMSkater {
@@ -781,6 +783,7 @@ impl HQMSkater {
         rot: Rotation3<f32>,
         hand: HQMSkaterHand,
         mass: f32,
+        limit_type: LimitType,
     ) -> Self {
         let linear_velocity = Vector3::new(0.0, 0.0, 0.0);
         let collision_balls = HQMSkater::get_collision_balls(&pos, &rot, &linear_velocity, mass);
@@ -804,6 +807,7 @@ impl HQMSkater {
             stick_placement_delta: Vector2::new(0.0, 0.0),
             hand,
             collision_balls,
+            limit_type,
         }
     }
 

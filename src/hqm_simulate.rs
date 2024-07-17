@@ -2,6 +2,7 @@ use crate::hqm_game::{
     HQMBody, HQMGameObject, HQMGameWorld, HQMObjectIndex, HQMPhysicsConfiguration, HQMPuck,
     HQMRink, HQMRinkNet, HQMSkater, HQMSkaterCollisionBall, HQMSkaterHand, HQMTeam, LinesAndNet,
 };
+use crate::hqm_ranked_util::LimitType;
 use nalgebra::{Point3, Rotation3, Vector2, Vector3};
 use smallvec::SmallVec;
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_8, PI};
@@ -279,9 +280,18 @@ fn update_stick(
     );
 
     let placement_diff = stick_input - &player.stick_placement;
-    let placement_change = placement_diff.scale(0.0625) - player.stick_placement_delta.scale(0.5);
-    // let placement_change = limit_vector_length2(&placement_change, 0.010);
-    //let placement_change = limit_vector_length2(&placement_change, 0.0088888891);
+    let mut placement_change =
+        placement_diff.scale(0.0625) - player.stick_placement_delta.scale(0.5);
+
+    match player.limit_type {
+        LimitType::Default => {
+            placement_change = limit_vector_length2(&placement_change, 0.0088888891);
+        }
+        LimitType::New => {
+            placement_change = limit_vector_length2(&placement_change, 0.010);
+        }
+        _ => {}
+    }
 
     player.stick_placement_delta += placement_change;
     player.stick_placement += &player.stick_placement_delta;
@@ -368,6 +378,7 @@ fn update_stick(
         &mut player.body,
         &stick_force.scale(-0.004),
         &intended_stick_position,
+        false,
     );
 
     if let Some((overlap, normal)) =
@@ -498,6 +509,7 @@ fn update_player(
             &mut player.body,
             &force.scale(0.9375 - 1.0),
             &intended_collision_ball_pos,
+            false,
         );
     }
 
@@ -743,7 +755,7 @@ fn do_puck_net_forces(
 
         if normal.dot(&puck_force) > 0.0 {
             limit_friction(&mut puck_force, &normal, 0.5);
-            apply_acceleration_to_object(&mut puck.body, &puck_force, &overlap_pos);
+            apply_acceleration_to_object(&mut puck.body, &puck_force, &overlap_pos, false);
             puck.body.linear_velocity *= 0.9875;
             puck.body.angular_velocity *= 0.95;
         }
@@ -773,7 +785,7 @@ fn do_puck_post_forces(
 
             if normal.dot(&puck_force) > 0.0 {
                 limit_friction(&mut puck_force, &normal, 0.2);
-                apply_acceleration_to_object(&mut puck.body, &puck_force, &p);
+                apply_acceleration_to_object(&mut puck.body, &puck_force, &p, false);
             }
         }
     }
@@ -808,7 +820,11 @@ fn do_puck_stick_forces(
                 limit_friction(&mut puck_force, &normal, 0.5);
                 player.stick_velocity -= puck_force.scale(0.25);
                 puck_force.scale_mut(0.75);
-                apply_acceleration_to_object(&mut puck.body, &puck_force, &puck_vertex);
+                let is_limited = match player.limit_type {
+                    LimitType::None => true,
+                    _ => false,
+                };
+                apply_acceleration_to_object(&mut puck.body, &puck_force, &puck_vertex, is_limited);
             }
         }
     }
@@ -837,7 +853,7 @@ fn do_puck_rink_forces(
 
             if normal.dot(&puck_force) > 0.0 {
                 limit_friction(&mut puck_force, &normal, friction);
-                apply_acceleration_to_object(&mut puck.body, &puck_force, &vertex);
+                apply_acceleration_to_object(&mut puck.body, &puck_force, &vertex, false);
             }
         }
     }
@@ -1046,10 +1062,17 @@ fn collision_between_vertex_and_rink(
     collision_between_sphere_and_rink(vertex, 0.0, rink)
 }
 
-fn apply_acceleration_to_object(body: &mut HQMBody, change: &Vector3<f32>, point: &Point3<f32>) {
+fn apply_acceleration_to_object(
+    body: &mut HQMBody,
+    change: &Vector3<f32>,
+    point: &Point3<f32>,
+    is_limited: bool,
+) {
     let diff1 = point - &body.pos;
     body.linear_velocity += change;
-    body.linear_velocity = limit_vector_length(&body.linear_velocity, 0.3);
+    if is_limited {
+        body.linear_velocity = limit_vector_length(&body.linear_velocity, 0.3);
+    }
     let cross = change.cross(&diff1);
     body.angular_velocity +=
         &body.rot * (body.rot.transpose() * cross).component_mul(&body.rot_mul);

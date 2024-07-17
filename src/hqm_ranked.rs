@@ -2,8 +2,8 @@ use tracing::info;
 
 use migo_hqm_server::hqm_game::HQMObjectIndex;
 use migo_hqm_server::hqm_game::{HQMGame, HQMTeam};
-use migo_hqm_server::hqm_ranked_util::State;
 use migo_hqm_server::hqm_ranked_util::{HQMPuckTouch, HQMRanked, HQMRankedConfiguration};
+use migo_hqm_server::hqm_ranked_util::{LimitType, State};
 use migo_hqm_server::hqm_server::{
     HQMServer, HQMServerBehaviour, HQMServerPlayerIndex, HQMSpawnPoint,
 };

@@ -24,6 +24,7 @@ use crate::hqm_game::{
     HQMSkaterHand, HQMTeam,
 };
 use crate::hqm_parse::{HQMClientToServerMessage, HQMMessageCodec, HQMMessageWriter};
+use crate::hqm_ranked_util::LimitType;
 use crate::hqm_simulate::HQMSimulationEvent;
 
 const GAME_HEADER: &[u8] = b"Hock";
@@ -1023,18 +1024,20 @@ impl HQMServer {
         if let Some(player) = self.players.get_mut(player_index) {
             if let Some((object_index, _)) = player.object {
                 if let Some(skater) = self.game.world.objects.get_skater_mut(object_index) {
-                    *skater = HQMSkater::new(pos, rot, player.hand, player.mass);
+                    *skater = HQMSkater::new(pos, rot, player.hand, player.mass, player.limit_type);
                     let object = Some((object_index, team));
                     player.object = object;
                     let update = player.get_update_message(player_index);
                     self.messages.add_global_message(update, true, true);
                 }
             } else {
-                if let Some(skater) =
-                    self.game
-                        .world
-                        .create_player_object(pos, rot, player.hand, player.mass)
-                {
+                if let Some(skater) = self.game.world.create_player_object(
+                    pos,
+                    rot,
+                    player.hand,
+                    player.mass,
+                    player.limit_type,
+                ) {
                     if let HQMServerPlayerData::NetworkPlayer { data } = &mut player.data {
                         data.view_player_index = player_index;
                     }
@@ -1947,6 +1950,7 @@ pub struct HQMServerPlayer {
     pub mass: f32,
     pub input: HQMPlayerInput,
     pub afk_time: u32,
+    pub limit_type: LimitType,
 }
 
 impl HQMServerPlayer {
@@ -1982,6 +1986,7 @@ impl HQMServerPlayer {
             hand: HQMSkaterHand::Right,
             mass: 1.0,
             afk_time: 0,
+            limit_type: LimitType::New,
         }
     }
 
