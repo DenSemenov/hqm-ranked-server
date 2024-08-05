@@ -68,12 +68,12 @@ impl HQMGameWorld {
         rot: Rotation3<f32>,
         hand: HQMSkaterHand,
         mass: f32,
-        limit_type: LimitType
+        limit_type_value: f32,
     ) -> Option<HQMObjectIndex> {
         let object_slot = self.find_empty_player_slot();
         if let Some(i) = object_slot {
             self.objects.objects[i.0] =
-                HQMGameObject::Player(HQMSkater::new(start, rot, hand, mass,limit_type));
+                HQMGameObject::Player(HQMSkater::new(start, rot, hand, mass, limit_type_value));
         }
         return object_slot;
     }
@@ -716,7 +716,7 @@ pub struct HQMSkater {
     pub stick_placement_delta: Vector2<f32>, // Change in azimuth and inclination per hundred of a second
     pub collision_balls: Vec<HQMSkaterCollisionBall>,
     pub hand: HQMSkaterHand,
-    pub limit_type: LimitType,
+    pub limit_type_value: f32,
 }
 
 impl HQMSkater {
@@ -783,7 +783,7 @@ impl HQMSkater {
         rot: Rotation3<f32>,
         hand: HQMSkaterHand,
         mass: f32,
-        limit_type: LimitType,
+        limit_type_value: f32,
     ) -> Self {
         let linear_velocity = Vector3::new(0.0, 0.0, 0.0);
         let collision_balls = HQMSkater::get_collision_balls(&pos, &rot, &linear_velocity, mass);
@@ -807,7 +807,7 @@ impl HQMSkater {
             stick_placement_delta: Vector2::new(0.0, 0.0),
             hand,
             collision_balls,
-            limit_type,
+            limit_type_value,
         }
     }
 

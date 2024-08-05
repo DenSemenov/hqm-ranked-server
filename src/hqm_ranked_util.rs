@@ -33,6 +33,7 @@ pub struct APILoginResponse {
     pub sendToAll: bool,
     pub team: i32,
     pub limitType: u32,
+    pub limitTypeValue: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -219,7 +220,7 @@ pub enum ApiResponse {
         player_index: HQMServerPlayerIndex,
         old_nickname: String,
         team: i32,
-        limit_type: LimitType,
+        limit_type_value: f32,
     },
     GameStarted {
         gameId: String,
@@ -1524,7 +1525,7 @@ impl HQMRanked {
                     player_index,
                     old_nickname,
                     team,
-                    limit_type,
+                    limit_type_value,
                 } => {
                     let t = if team == 0 {
                         HQMTeam::Red
@@ -1537,7 +1538,7 @@ impl HQMRanked {
                         player_id,
                         old_nickname,
                         t,
-                        limit_type,
+                        limit_type_value,
                     );
                 }
                 ApiResponse::GameStarted {
@@ -1732,11 +1733,11 @@ impl HQMRanked {
         player_id: i32,
         old_nickname: String,
         team: HQMTeam,
-        limit_type: LimitType,
+        limit_type_value: f32,
     ) {
         if let Some(player) = server.players.get_mut(player_index) {
             player.is_muted = HQMMuteStatus::NotMuted;
-            player.limit_type = limit_type;
+            player.limit_type_value = limit_type_value;
 
             self.verified_players.insert(player_index, player_id);
             let rhqm_player = self.rhqm_game.get_player_by_id_mut(player_id.clone());
@@ -1849,33 +1850,21 @@ impl HQMRanked {
                             match response.json::<APILoginResponse>().await {
                                 Ok(parsed) => {
                                     if parsed.success {
-                                        let lt = match parsed.limitType {
-                                            0 => LimitType::Default,
-                                            1 => LimitType::New,
-                                            2 => LimitType::None,
-                                            _ => LimitType::New,
-                                        };
                                         sender.send(ApiResponse::LoginSuccessful {
                                             player_id: parsed.id,
                                             player_index: player_index,
                                             old_nickname: parsed.oldNickname,
                                             team: parsed.team,
-                                            limit_type: lt,
+                                            limit_type_value: parsed.limitTypeValue,
                                         })?;
                                     } else {
                                         if Some(parsed.id) == already_verified {
-                                            let lt = match parsed.limitType {
-                                                0 => LimitType::Default,
-                                                1 => LimitType::New,
-                                                2 => LimitType::None,
-                                                _ => LimitType::New,
-                                            };
                                             sender.send(ApiResponse::LoginSuccessful {
                                                 player_id: parsed.id,
                                                 player_index: player_index,
                                                 old_nickname: String::from(""),
                                                 team: parsed.team,
-                                                limit_type: lt,
+                                                limit_type_value: parsed.limitTypeValue,
                                             })?;
                                         } else {
                                             sender.send(ApiResponse::LoginFailed {
@@ -2798,17 +2787,12 @@ impl HQMRanked {
         for player_index in red_real_player_want_to_join {
             red_count += 1;
 
-                server.spawn_skater_at_spawnpoint(player_index, HQMTeam::Red, HQMSpawnPoint::Bench);
-            
+            server.spawn_skater_at_spawnpoint(player_index, HQMTeam::Red, HQMSpawnPoint::Bench);
         }
         for player_index in blue_real_player_want_to_join {
             blue_count += 1;
 
-                server.spawn_skater_at_spawnpoint(
-                    player_index,
-                    HQMTeam::Blue,
-                    HQMSpawnPoint::Bench,
-                );
+            server.spawn_skater_at_spawnpoint(player_index, HQMTeam::Blue, HQMSpawnPoint::Bench);
         }
         if red_count < red_actual_players {
             for player_index in red_standin_want_to_join
@@ -2817,12 +2801,7 @@ impl HQMRanked {
             {
                 red_count += 1;
 
-                    server.spawn_skater_at_spawnpoint(
-                        player_index,
-                        HQMTeam::Red,
-                        HQMSpawnPoint::Bench,
-                    );
-                
+                server.spawn_skater_at_spawnpoint(player_index, HQMTeam::Red, HQMSpawnPoint::Bench);
             }
         } else if red_count > red_actual_players {
             for player_index in red_standins
@@ -2839,11 +2818,11 @@ impl HQMRanked {
                 .take(blue_actual_players - blue_count)
             {
                 blue_count += 1;
-                    server.spawn_skater_at_spawnpoint(
-                        player_index,
-                        HQMTeam::Blue,
-                        HQMSpawnPoint::Bench,
-                    );
+                server.spawn_skater_at_spawnpoint(
+                    player_index,
+                    HQMTeam::Blue,
+                    HQMSpawnPoint::Bench,
+                );
             }
         } else if blue_count > blue_actual_players {
             for player_index in blue_standins
@@ -2953,18 +2932,14 @@ impl HQMRanked {
                 }
             }
             for (i, player_index) in players_to_spawn_red.into_iter().enumerate() {
-                    server.spawn_skater_at_spawnpoint(
-                        player_index,
-                        HQMTeam::Red,
-                        HQMSpawnPoint::Bench,
-                    );
+                server.spawn_skater_at_spawnpoint(player_index, HQMTeam::Red, HQMSpawnPoint::Bench);
             }
             for (i, player_index) in players_to_spawn_blue.into_iter().enumerate() {
-                    server.spawn_skater_at_spawnpoint(
-                        player_index,
-                        HQMTeam::Blue,
-                        HQMSpawnPoint::Bench,
-                    );
+                server.spawn_skater_at_spawnpoint(
+                    player_index,
+                    HQMTeam::Blue,
+                    HQMSpawnPoint::Bench,
+                );
             }
             if !waiting_for_response && self.queued_players.len() >= self.config.team_max * 2 {
                 if self.delay_timer != 0 {

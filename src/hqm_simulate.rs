@@ -283,15 +283,9 @@ fn update_stick(
     let mut placement_change =
         placement_diff.scale(0.0625) - player.stick_placement_delta.scale(0.5);
 
-    match player.limit_type {
-        LimitType::Default => {
-            placement_change = limit_vector_length2(&placement_change, 0.0088888891);
+        if player.limit_type_value != 0.0{
+            placement_change = limit_vector_length2(&placement_change, player.limit_type_value);
         }
-        LimitType::New => {
-            placement_change = limit_vector_length2(&placement_change, 0.010);
-        }
-        _ => {}
-    }
 
     player.stick_placement_delta += placement_change;
     player.stick_placement += &player.stick_placement_delta;
@@ -820,10 +814,7 @@ fn do_puck_stick_forces(
                 limit_friction(&mut puck_force, &normal, 0.5);
                 player.stick_velocity -= puck_force.scale(0.25);
                 puck_force.scale_mut(0.75);
-                let is_limited = match player.limit_type {
-                    LimitType::None => true,
-                    _ => false,
-                };
+                let is_limited = player.limit_type_value == 0.0 || player.limit_type_value > 0.01;
                 apply_acceleration_to_object(&mut puck.body, &puck_force, &puck_vertex, is_limited);
             }
         }
