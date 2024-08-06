@@ -1061,9 +1061,9 @@ fn apply_acceleration_to_object(
 ) {
     let diff1 = point - &body.pos;
     body.linear_velocity += change;
-    if is_limited {
-        body.linear_velocity = limit_vector_length(&body.linear_velocity, 0.2665);
-    }
+    // if is_limited {
+    //     body.linear_velocity = limit_vector_length(&body.linear_velocity, 0.2665);
+    // }
     let cross = change.cross(&diff1);
     body.angular_velocity +=
         &body.rot * (body.rot.transpose() * cross).component_mul(&body.rot_mul);
