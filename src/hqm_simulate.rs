@@ -283,9 +283,9 @@ fn update_stick(
     let mut placement_change =
         placement_diff.scale(0.0625) - player.stick_placement_delta.scale(0.5);
 
-        if player.limit_type_value != 0.0{
-            placement_change = limit_vector_length2(&placement_change, player.limit_type_value);
-        }
+    if player.limit_type_value != 0.0 {
+        placement_change = limit_vector_length2(&placement_change, player.limit_type_value);
+    }
 
     player.stick_placement_delta += placement_change;
     player.stick_placement += &player.stick_placement_delta;
@@ -1098,7 +1098,7 @@ fn adjust_head_body_rot(rot: &mut f32, input_rot: f32) {
     }
 }
 
-fn limit_vector_length(v: &Vector3<f32>, max_len: f32) -> Vector3<f32> {
+pub fn limit_vector_length(v: &Vector3<f32>, max_len: f32) -> Vector3<f32> {
     let norm = v.norm();
     let mut res = v.clone_owned();
     if norm > max_len {
