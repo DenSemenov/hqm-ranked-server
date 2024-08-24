@@ -362,6 +362,11 @@ pub struct HQMRankedConfiguration {
     pub faceoff_shift: bool,
     pub server_type: ServerType,
     pub afk_time: u32,
+
+    pub spawn_point_offset: f32,
+    pub spawn_player_altitude: f32,
+    pub spawn_puck_altitude: f32,
+    pub spawn_keep_stick_position: bool,
 }
 
 pub enum HQMRankedEvent {
@@ -470,10 +475,15 @@ impl HQMRanked {
             .game
             .world
             .rink
-            .get_faceoff_spot(self.next_faceoff_spot)
+            .get_faceoff_spot(
+                self.next_faceoff_spot,
+                self.config.spawn_point_offset,
+                self.config.spawn_player_altitude,
+            )
             .clone();
 
-        let puck_pos = next_faceoff_spot.center_position + &(1.5f32 * Vector3::y());
+        let puck_pos =
+            next_faceoff_spot.center_position + &(self.config.spawn_puck_altitude * Vector3::y());
 
         server
             .game
@@ -1398,7 +1408,7 @@ impl HQMRanked {
         for i in 0..warmup_pucks {
             let pos = Point3::new(
                 puck_line_start + 0.8 * (i as f32),
-                1.5,
+                 self.config.spawn_puck_altitude,
                 game.world.rink.length / 2.0,
             );
             let rot = Rotation3::identity();

@@ -663,30 +663,216 @@ impl HQMRink {
         }
     }
 
-    pub fn get_faceoff_spot(&self, spot: HQMRinkFaceoffSpot) -> &HQMFaceoffSpot {
+    pub fn get_faceoff_spot(
+        &self,
+        spot: HQMRinkFaceoffSpot,
+        spawn_point_offset: f32,
+        spawn_player_altitude: f32,
+    ) -> HQMFaceoffSpot {
+        let length = self.length;
+        let width = self.width;
+
+        let red_rot = Rotation3::identity();
+        let blue_rot = Rotation3::from_euler_angles(0.0, PI, 0.0);
+        let red_goalie_pos = Point3::new(width / 2.0, spawn_player_altitude, length - 5.0);
+        let blue_goalie_pos = Point3::new(width / 2.0, spawn_player_altitude, 5.0);
+
+        let goal_line_distance = 4.0; // IIHF rule 17iv
+
+        let blue_line_distance_neutral_zone_edge = self.blue_lines_and_net.defensive_line.point.z;
+        // IIHF specifies distance between end boards and edge closest to the neutral zone, but my code specifies middle of line
+        let distance_neutral_faceoff_spot = blue_line_distance_neutral_zone_edge + 1.5; // IIHF rule 18iv and 18vii
+        let distance_zone_faceoff_spot = goal_line_distance + 6.0; // IIHF rule 18vi and 18vii
+
+        let center_x = width / 2.0;
+        let left_faceoff_x = center_x - 7.0; // IIHF rule 18vi and 18iv
+        let right_faceoff_x = center_x + 7.0; // IIHF rule 18vi and 18iv
+
+        let red_zone_faceoff_z = length - distance_zone_faceoff_spot;
+        let red_neutral_faceoff_z = length - distance_neutral_faceoff_spot;
+        let center_z = length / 2.0;
+        let blue_neutral_faceoff_z = distance_neutral_faceoff_spot;
+        let blue_zone_faceoff_z = distance_zone_faceoff_spot;
+
+        let create_faceoff_spot = |center_position: Point3<f32>| {
+            let red_defensive_zone = center_position.z > length - 11.0;
+            let blue_defensive_zone = center_position.z < 11.0;
+            let (red_left, red_right) = if center_position.x < 9.0 {
+                (true, false)
+            } else if center_position.x > width - 9.0 {
+                (false, true)
+            } else {
+                (false, false)
+            };
+            let blue_left = red_right;
+            let blue_right = red_left;
+
+            fn get_positions(
+                center_position: &Point3<f32>,
+                rot: &Rotation3<f32>,
+                goalie_pos: &Point3<f32>,
+                is_defensive_zone: bool,
+                is_close_to_left: bool,
+                is_close_to_right: bool,
+
+                spawn_point_offset: f32,
+                spawn_player_altitude: f32,
+            ) -> HashMap<String, (Point3<f32>, Rotation3<f32>)> {
+                let mut player_positions = HashMap::new();
+
+                let winger_z = 4.0;
+                let m_z = 7.25;
+                let d_z = if is_defensive_zone { 8.25 } else { 10.0 };
+                let (far_left_winger_x, far_left_winger_z) = if is_close_to_left {
+                    (-6.5, 3.0)
+                } else {
+                    (-10.0, winger_z)
+                };
+                let (far_right_winger_x, far_right_winger_z) = if is_close_to_right {
+                    (6.5, 3.0)
+                } else {
+                    (10.0, winger_z)
+                };
+
+                let offsets = vec![
+                    (
+                        "C",
+                        Vector3::new(0.0, spawn_player_altitude, spawn_point_offset),
+                    ),
+                    ("LM", Vector3::new(-2.0, spawn_player_altitude, m_z)),
+                    ("RM", Vector3::new(2.0, spawn_player_altitude, m_z)),
+                    ("LW", Vector3::new(-5.0, spawn_player_altitude, winger_z)),
+                    ("RW", Vector3::new(5.0, spawn_player_altitude, winger_z)),
+                    ("LD", Vector3::new(-2.0, spawn_player_altitude, d_z)),
+                    ("RD", Vector3::new(2.0, spawn_player_altitude, d_z)),
+                    (
+                        "LLM",
+                        Vector3::new(
+                            if is_close_to_left && is_defensive_zone {
+                                -3.0
+                            } else {
+                                -5.0
+                            },
+                            spawn_player_altitude,
+                            m_z,
+                        ),
+                    ),
+                    (
+                        "RRM",
+                        Vector3::new(
+                            if is_close_to_right && is_defensive_zone {
+                                3.0
+                            } else {
+                                5.0
+                            },
+                            spawn_player_altitude,
+                            m_z,
+                        ),
+                    ),
+                    (
+                        "LLD",
+                        Vector3::new(
+                            if is_close_to_left && is_defensive_zone {
+                                -3.0
+                            } else {
+                                -5.0
+                            },
+                            spawn_player_altitude,
+                            d_z,
+                        ),
+                    ),
+                    (
+                        "RRD",
+                        Vector3::new(
+                            if is_close_to_right && is_defensive_zone {
+                                3.0
+                            } else {
+                                5.0
+                            },
+                            spawn_player_altitude,
+                            d_z,
+                        ),
+                    ),
+                    ("CM", Vector3::new(0.0, spawn_player_altitude, m_z)),
+                    ("CD", Vector3::new(0.0, spawn_player_altitude, d_z)),
+                    ("LW2", Vector3::new(-6.0, spawn_player_altitude, winger_z)),
+                    ("RW2", Vector3::new(6.0, spawn_player_altitude, winger_z)),
+                    (
+                        "LLW",
+                        Vector3::new(far_left_winger_x, spawn_player_altitude, far_left_winger_z),
+                    ),
+                    (
+                        "RRW",
+                        Vector3::new(
+                            far_right_winger_x,
+                            spawn_player_altitude,
+                            far_right_winger_z,
+                        ),
+                    ),
+                ];
+                for (s, offset) in offsets {
+                    let pos = center_position + rot * &offset;
+
+                    player_positions.insert(String::from(s), (pos, rot.clone()));
+                }
+
+                player_positions.insert(String::from("G"), (goalie_pos.clone(), rot.clone()));
+
+                player_positions
+            }
+
+            let red_player_positions = get_positions(
+                &center_position,
+                &red_rot,
+                &red_goalie_pos,
+                red_defensive_zone,
+                red_left,
+                red_right,
+                spawn_point_offset,
+                spawn_player_altitude,
+            );
+
+            let blue_player_positions = get_positions(
+                &center_position,
+                &blue_rot,
+                &blue_goalie_pos,
+                blue_defensive_zone,
+                blue_left,
+                blue_right,
+                spawn_point_offset,
+                spawn_player_altitude,
+            );
+
+            HQMFaceoffSpot {
+                center_position,
+                red_player_positions,
+                blue_player_positions,
+            }
+        };
+
         match spot {
-            HQMRinkFaceoffSpot::Center => &self.center_faceoff_spot,
+            HQMRinkFaceoffSpot::Center => create_faceoff_spot(Point3::new(center_x, 0.0, center_z)),
             HQMRinkFaceoffSpot::DefensiveZone(team, side) => {
-                let faceoff_spots = match team {
-                    HQMTeam::Red => &self.red_zone_faceoff_spots,
-                    HQMTeam::Blue => &self.blue_zone_faceoff_spots,
+                let z = match team {
+                    HQMTeam::Red => red_zone_faceoff_z,
+                    HQMTeam::Blue => blue_zone_faceoff_z,
                 };
-                let index = match side {
-                    HQMRinkSide::Left => 0,
-                    HQMRinkSide::Right => 1,
+                let x = match side {
+                    HQMRinkSide::Left => left_faceoff_x,
+                    HQMRinkSide::Right => right_faceoff_x,
                 };
-                &faceoff_spots[index]
+                create_faceoff_spot(Point3::new(x, 0.0, z))
             }
             HQMRinkFaceoffSpot::Offside(team, side) => {
-                let faceoff_spots = match team {
-                    HQMTeam::Red => &self.red_neutral_faceoff_spots,
-                    HQMTeam::Blue => &self.blue_neutral_faceoff_spots,
+                let z = match team {
+                    HQMTeam::Red => red_neutral_faceoff_z,
+                    HQMTeam::Blue => blue_neutral_faceoff_z,
                 };
-                let index = match side {
-                    HQMRinkSide::Left => 0,
-                    HQMRinkSide::Right => 1,
+                let x = match side {
+                    HQMRinkSide::Left => left_faceoff_x,
+                    HQMRinkSide::Right => right_faceoff_x,
                 };
-                &faceoff_spots[index]
+                create_faceoff_spot(Point3::new(x, 0.0, z))
             }
         }
     }

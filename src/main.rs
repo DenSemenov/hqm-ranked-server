@@ -285,6 +285,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         _ => HQMSpawnPoint::Center,
                     });
 
+                let spawn_point_offset = get_optional(game_section, "spawn_offset", 2.75f32, |x| {
+                    x.parse::<f32>().unwrap()
+                });
+
+                let spawn_player_altitude =
+                    get_optional(game_section, "spawn_player_altitude", 1.5f32, |x| {
+                        x.parse::<f32>().unwrap()
+                    });
+
+                let spawn_puck_altitude =
+                    get_optional(game_section, "spawn_puck_altitude", 1.5f32, |x| {
+                        x.parse::<f32>().unwrap()
+                    });
+
+                let spawn_keep_stick_position =
+                    get_optional(game_section, "spawn_player_keep_stick", false, |s| {
+                        s.eq_ignore_ascii_case("true") || s.eq_ignore_ascii_case("on")
+                    });
+
                 let picking_mode = get_optional(
                     ranked_section,
                     "picking_mode",
@@ -366,6 +385,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     faceoff_shift,
                     server_type,
                     afk_time,
+                    spawn_point_offset,
+                    spawn_player_altitude,
+                    spawn_puck_altitude,
+                    spawn_keep_stick_position,
                 };
 
                 let _ = hqm_server::run_server(
