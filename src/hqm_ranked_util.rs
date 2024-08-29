@@ -34,6 +34,8 @@ pub struct APILoginResponse {
     pub team: i32,
     pub limitType: u32,
     pub limitTypeValue: f32,
+    pub isAdmin: bool,
+    pub isShadowBanned: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -221,6 +223,8 @@ pub enum ApiResponse {
         old_nickname: String,
         team: i32,
         limit_type_value: f32,
+        isAdmin: bool,
+        isShadowBanned: bool,
     },
     GameStarted {
         gameId: String,
@@ -1408,7 +1412,7 @@ impl HQMRanked {
         for i in 0..warmup_pucks {
             let pos = Point3::new(
                 puck_line_start + 0.8 * (i as f32),
-                 self.config.spawn_puck_altitude,
+                self.config.spawn_puck_altitude,
                 game.world.rink.length / 2.0,
             );
             let rot = Rotation3::identity();
@@ -1536,6 +1540,8 @@ impl HQMRanked {
                     old_nickname,
                     team,
                     limit_type_value,
+                    isAdmin,
+                    isShadowBanned,
                 } => {
                     let t = if team == 0 {
                         HQMTeam::Red
@@ -1549,6 +1555,8 @@ impl HQMRanked {
                         old_nickname,
                         t,
                         limit_type_value,
+                        isAdmin,
+                        isShadowBanned,
                     );
                 }
                 ApiResponse::GameStarted {
@@ -1744,10 +1752,16 @@ impl HQMRanked {
         old_nickname: String,
         team: HQMTeam,
         limit_type_value: f32,
+        isAdmin: bool,
+        isShadowBanned: bool,
     ) {
         if let Some(player) = server.players.get_mut(player_index) {
             player.is_muted = HQMMuteStatus::NotMuted;
             player.limit_type_value = limit_type_value;
+
+            if isAdmin {
+                player.is_admin = true;
+            }
 
             self.verified_players.insert(player_index, player_id);
             let rhqm_player = self.rhqm_game.get_player_by_id_mut(player_id.clone());
@@ -1796,10 +1810,24 @@ impl HQMRanked {
                     old_nickname_text = format!(" ({})", old_nickname);
                 }
 
+                let is_admin_text = if isAdmin {
+                    String::from(" (Admin)")
+                } else {
+                    String::from("")
+                };
+
+                let is_shadowban_text = if isShadowBanned {
+                    String::from(" (Shadowban)")
+                } else {
+                    String::from("")
+                };
+
                 let msg = format!(
-                    "[Server] {}{} logged in [{}/{}]",
+                    "[Server] {}{}{}{} logged in [{}/{}]",
                     name,
                     old_nickname_text,
+                    is_admin_text,
+                    is_shadowban_text,
                     self.queued_players.len().to_string(),
                     self.config.team_max * 2
                 );
@@ -1866,6 +1894,8 @@ impl HQMRanked {
                                             old_nickname: parsed.oldNickname,
                                             team: parsed.team,
                                             limit_type_value: parsed.limitTypeValue,
+                                            isAdmin: parsed.isAdmin,
+                                            isShadowBanned: parsed.isShadowBanned,
                                         })?;
                                     } else {
                                         if Some(parsed.id) == already_verified {
@@ -1875,6 +1905,8 @@ impl HQMRanked {
                                                 old_nickname: String::from(""),
                                                 team: parsed.team,
                                                 limit_type_value: parsed.limitTypeValue,
+                                                isAdmin: parsed.isAdmin,
+                                                isShadowBanned: parsed.isShadowBanned,
                                             })?;
                                         } else {
                                             sender.send(ApiResponse::LoginFailed {
