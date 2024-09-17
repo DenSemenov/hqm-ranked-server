@@ -11,6 +11,8 @@ use migo_hqm_server::hqm_simulate::HQMSimulationEvent;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
+use tokio::net::UdpSocket;
 
 use migo_hqm_server::hqm_game::HQMPuck;
 
@@ -108,8 +110,8 @@ impl HQMServerBehaviour for HQMRankedBehaviour {
         server.history_length = 1000;
     }
 
-    fn main_tick(&mut self, server: &mut HQMServer) {
-        self.m.main_tick(server);
+    fn main_tick(&mut self, server: &mut HQMServer, socket: &Arc<UdpSocket>) {
+        self.m.main_tick(server, socket);
     }
 
     fn before_tick(&mut self, server: &mut HQMServer) {

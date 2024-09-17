@@ -145,6 +145,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             server_name,
             server_service,
             token,
+            public: server_public,
         };
 
         // Physics
@@ -393,7 +394,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 let _ = hqm_server::run_server(
                     server_port,
-                    server_public,
                     config,
                     HQMRankedBehaviour::new(match_config, server_team_max, spawn_point),
                 )

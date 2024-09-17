@@ -1115,8 +1115,8 @@ impl HQMServer {
         return self.players.iter().find(|(_, x)| x.is_none()).map(|x| x.0);
     }
 
-    fn main_tick<B: HQMServerBehaviour>(&mut self, behaviour: &mut B) {
-        behaviour.main_tick(self);
+    fn main_tick<B: HQMServerBehaviour>(&mut self, behaviour: &mut B, socket: &Arc<UdpSocket>) {
+        behaviour.main_tick(self, socket);
     }
 
     fn game_step<B: HQMServerBehaviour>(&mut self, behaviour: &mut B) {
@@ -1228,7 +1228,7 @@ impl HQMServer {
 
     async fn tick<B: HQMServerBehaviour>(
         &mut self,
-        socket: &UdpSocket,
+        socket: &Arc<UdpSocket>,
         behaviour: &mut B,
         write_buf: &mut BytesMut,
     ) {
@@ -1324,7 +1324,7 @@ impl HQMServer {
             self.allow_join = true;
         }
 
-        self.main_tick(behaviour);
+        self.main_tick(behaviour, socket);
     }
 
     pub fn new_game(&mut self, new_game: HQMGame) {
@@ -1495,7 +1495,6 @@ struct ReplayElement {
 
 pub async fn run_server<B: HQMServerBehaviour>(
     port: u16,
-    public: bool,
     config: HQMServerConfiguration,
     mut behaviour: B,
 ) -> std::io::Result<()> {
@@ -1550,27 +1549,29 @@ pub async fn run_server<B: HQMServerBehaviour>(
         socket.local_addr().unwrap()
     );
 
-    if public {
-        let socket = socket.clone();
-        let reqwest_client = reqwest_client.clone();
-        tokio::spawn(async move {
-            loop {
-                let master_server = get_master_server(&reqwest_client).await.ok();
-                if let Some(addr) = master_server {
-                    for _ in 0..60 {
-                        let msg = b"Hock\x20";
-                        let res = socket.send_to(msg, addr).await;
-                        if res.is_err() {
-                            break;
-                        }
-                        tokio::time::sleep(Duration::from_secs(10)).await;
-                    }
-                } else {
-                    tokio::time::sleep(Duration::from_secs(15)).await;
-                }
-            }
-        });
-    }
+    // let is_public = server.config.public.clone();
+
+    // if is_public {
+    //     let socket = socket.clone();
+    //     let reqwest_client = reqwest_client.clone();
+    //     tokio::spawn(async move {
+    //         loop {
+    //             let master_server = get_master_server(&reqwest_client).await.ok();
+    //             if let Some(addr) = master_server {
+    //                 for _ in 0..60 {
+    //                     let msg = b"Hock\x20";
+    //                     let res = socket.send_to(msg, addr).await;
+    //                     if res.is_err() {
+    //                         break;
+    //                     }
+    //                     tokio::time::sleep(Duration::from_secs(10)).await;
+    //                 }
+    //             } else {
+    //                 tokio::time::sleep(Duration::from_secs(15)).await;
+    //             }
+    //         }
+    //     });
+    // }
     let (msg_sender, mut msg_receiver) = tokio::sync::mpsc::channel(256);
     {
         let socket = socket.clone();
@@ -2137,12 +2138,13 @@ pub struct HQMServerConfiguration {
     pub server_service: Option<String>,
 
     pub token: String,
+    pub public: bool,
 }
 
 pub trait HQMServerBehaviour {
     fn init(&mut self, _server: &mut HQMServer) {}
 
-    fn main_tick(&mut self, server: &mut HQMServer);
+    fn main_tick(&mut self, server: &mut HQMServer, socket: &Arc<UdpSocket>);
     fn before_tick(&mut self, server: &mut HQMServer);
     fn after_tick(&mut self, server: &mut HQMServer, events: &[HQMSimulationEvent]);
     fn handle_command(

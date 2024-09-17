@@ -14,7 +14,9 @@ use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::f32::consts::FRAC_PI_2;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+use tokio::net::UdpSocket;
 use tracing::info;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -94,6 +96,12 @@ pub struct SaveGameRequest {
 pub struct SaveGameResponse {
     pub mvp: String,
     pub players: Vec<SaveGamePlayerResponse>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct HeartbeatResponse {
+    pub name: String,
+    pub isPublic: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -236,6 +244,10 @@ pub enum ApiResponse {
     GameEnded {
         mvp: String,
         players: Vec<SaveGamePlayerResponse>,
+    },
+    Heartbeat {
+        name: String,
+        isPublic: bool,
     },
     Report {
         message: String,
@@ -1169,8 +1181,34 @@ impl HQMRanked {
         server.messages.add_server_chat_message_str("Icing");
     }
 
-    pub fn main_tick(&mut self, server: &mut HQMServer) {
+    pub fn main_tick(&mut self, server: &mut HQMServer, socket: &Arc<UdpSocket>) {
         self.tick += 1;
+
+        self.handle_responses(server);
+
+        if self.tick % 1000 == 0 {
+            if (server.config.public) {
+                let client = server.reqwest_client.clone();
+                let socket = socket.clone();
+
+                tokio::spawn(async move {
+                    let url = format!("https://sam2.github.io/HQMMasterServerEndpoint/");
+
+                    let s = client.get(url).send().await?.text().await?;
+                    let split = s.split_ascii_whitespace().collect::<Vec<&str>>();
+
+                    let addr = split.get(1).unwrap_or(&"").parse::<IpAddr>()?;
+                    let port = split.get(2).unwrap_or(&"").parse::<u16>()?;
+
+                    let addr_full = SocketAddr::new(addr, port);
+
+                    let msg = b"Hock\x20";
+                    let _ = socket.send_to(msg, addr_full).await;
+
+                    Ok::<_, anyhow::Error>(())
+                });
+            }
+        }
 
         if self.tick % 500 == 0 {
             let api = self.config.api.clone();
@@ -1199,6 +1237,8 @@ impl HQMRanked {
             }
 
             let client = server.reqwest_client.clone();
+            let sender = self.sender.clone();
+
             tokio::spawn(async move {
                 let url = format!("{}/api/Server/Heartbeat", api);
 
@@ -1214,8 +1254,29 @@ impl HQMRanked {
                     state: state,
                 };
 
-                let _response: reqwest::Response =
+                let response: reqwest::Response =
                     client.post(url).json(&request).send().await.unwrap();
+
+                match response.status() {
+                    reqwest::StatusCode::OK => {
+                        match response.json::<HeartbeatResponse>().await {
+                            Ok(parsed) => {
+                                sender.send(ApiResponse::Heartbeat {
+                                    name: parsed.name,
+                                    isPublic: parsed.isPublic,
+                                })?;
+                            }
+                            Err(_) => sender.send(ApiResponse::Error {
+                                error_message: "[Server] Can't parse response".to_owned(),
+                            })?,
+                        };
+                    }
+                    _ => {
+                        sender.send(ApiResponse::Error {
+                            error_message: "[Server] Can't connect to host".to_owned(),
+                        })?;
+                    }
+                }
 
                 Ok::<_, anyhow::Error>(())
             });
@@ -1679,6 +1740,10 @@ impl HQMRanked {
                             .messages
                             .add_directed_server_chat_message(player_msg, player_index);
                     }
+                }
+                ApiResponse::Heartbeat { name, isPublic } => {
+                    server.config.server_name = name;
+                    server.config.public = isPublic;
                 }
                 ApiResponse::Error { error_message } => {
                     server.messages.add_server_chat_message(error_message);
