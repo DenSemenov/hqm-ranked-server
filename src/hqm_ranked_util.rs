@@ -1651,6 +1651,10 @@ impl HQMRanked {
                                 team = Some(queue_player.team);
                             }
 
+                            if self.config.server_type == ServerType::WeeklyTourney {
+                                team = Some(queue_player.team);
+                            }
+
                             let rhqm_player = RHQMGamePlayer {
                                 player_id: p.id,
                                 player_name: queue_player.player_name.clone(),
