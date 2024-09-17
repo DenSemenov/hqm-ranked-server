@@ -345,6 +345,7 @@ pub enum RankedPickingMode {
 pub enum ServerType {
     Ranked,
     Teams,
+    WeeklyTourney,
 }
 
 pub struct HQMRankedConfiguration {
@@ -1679,6 +1680,15 @@ impl HQMRanked {
                             };
                             self.send_available_picks(server);
                         } else if self.config.server_type == ServerType::Teams {
+                            self.queued_players = vec![];
+                            if title.len() != 0 {
+                                let msg = format!("[Server] Game {} starting", title);
+                                server.messages.add_server_chat_message(msg);
+                            }
+                            self.paused = false;
+                            self.rhqm_game.game_players = new_players;
+                            self.start_captains_game(server);
+                        } else if self.config.server_type == ServerType::WeeklyTourney {
                             self.queued_players = vec![];
                             if title.len() != 0 {
                                 let msg = format!("[Server] Game {} starting", title);

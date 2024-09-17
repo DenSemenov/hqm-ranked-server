@@ -352,6 +352,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     get_optional(game_section, "type", ServerType::Ranked, |x| match x {
                         "ranked" => ServerType::Ranked,
                         "teams" => ServerType::Teams,
+                        "weekly" => ServerType::WeeklyTourney,
                         _ => ServerType::Ranked,
                     });
 
