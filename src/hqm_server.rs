@@ -879,7 +879,7 @@ impl HQMServer {
                 self.process_command(command, arg, player_index, behaviour);
             } else {
                 if !self.is_muted {
-                    match self.players.get(player_index) {
+                    match self.players.get_mut(player_index) {
                         Some(player) => match player.is_muted {
                             HQMMuteStatus::NotMuted => {
                                 info!("{} ({}): {}", &player.player_name, player_index, &msg);
@@ -893,10 +893,17 @@ impl HQMServer {
                                 );
                             }
                             HQMMuteStatus::NotLoggedIn => {
-                                self.messages.add_directed_server_chat_message(
-                                    format!("[Server] Log in to send chat message"),
-                                    player_index,
-                                );
+                                if player.messages_left != 0 {
+                                    info!("{} ({}): {}", &player.player_name, player_index, &msg);
+                                    self.messages.add_user_chat_message(msg, player_index);
+
+                                    player.messages_left -= 1;
+                                } else {
+                                    self.messages.add_directed_server_chat_message(
+                                        format!("[Server] Log in to send chat message"),
+                                        player_index,
+                                    );
+                                }
                             }
                             HQMMuteStatus::Muted => {}
                         },
@@ -1988,6 +1995,7 @@ pub struct HQMServerPlayer {
     pub input: HQMPlayerInput,
     pub afk_time: u32,
     pub limit_type_value: f32,
+    pub messages_left: u32,
 }
 
 impl HQMServerPlayer {
@@ -2024,6 +2032,7 @@ impl HQMServerPlayer {
             mass: 1.0,
             afk_time: 0,
             limit_type_value: 0.01,
+            messages_left: 3,
         }
     }
 
