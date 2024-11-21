@@ -374,7 +374,44 @@ impl HQMServer {
                 self.request_info(socket, addr, version, ping, behaviour, write_buf)
                     .await;
             }
+            HQMClientToServerMessage::Ping => {
+                self.send_pings(socket, addr, behaviour, write_buf).await;
+            }
         }
+    }
+
+    async fn send_pings<'a, B: HQMServerBehaviour>(
+        &self,
+        socket: &Arc<UdpSocket>,
+        addr: SocketAddr,
+        behaviour: &B,
+        write_buf: &mut BytesMut,
+    ) {
+        write_buf.clear();
+        let mut writer = HQMMessageWriter::new(write_buf);
+        writer.write_bytes_aligned(GAME_HEADER);
+        writer.write_byte_aligned(7);
+
+        let len = self.players.len() as u8;
+
+        writer.write_byte_aligned(len);
+
+        for player_index in 0..self.players.len() {
+            writer.write_byte_aligned(player_index as u8);
+            let player_index = HQMServerPlayerIndex(player_index);
+            if let Some(player) = self.players.get(player_index) {
+                if let Some(ping) = player.ping_data() {
+                    let avg = ping.avg * 1000f32;
+                    writer.write_byte_aligned(avg as u8);
+                }
+            }
+        }
+
+        let socket = socket.clone();
+        let addr = addr.clone();
+
+        let slice: &[u8] = &write_buf;
+        let _ = socket.send_to(slice, addr).await;
     }
 
     async fn request_info<'a, B: HQMServerBehaviour>(

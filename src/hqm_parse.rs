@@ -46,6 +46,7 @@ pub enum HQMClientToServerMessage {
         version: u32,
         ping: u32,
     },
+    Ping,
 }
 
 pub struct HQMMessageCodec;
@@ -68,9 +69,17 @@ impl HQMMessageCodec {
             4 => self.parse_player_update(&mut parser, HQMClientVersion::Vanilla),
             8 => self.parse_player_update(&mut parser, HQMClientVersion::Ping),
             0x10 => self.parse_player_update(&mut parser, HQMClientVersion::PingRules),
+            12 => self.parse_request_pings(&mut parser),
             7 => Ok(HQMClientToServerMessage::Exit),
             _ => Err(HQMClientToServerMessageDecoderError::UnknownType),
         }
+    }
+
+    fn parse_request_pings(
+        &self,
+        parser: &mut HQMMessageReader,
+    ) -> Result<HQMClientToServerMessage, HQMClientToServerMessageDecoderError> {
+        Ok(HQMClientToServerMessage::Ping)
     }
 
     fn parse_request_info(
